@@ -2,7 +2,7 @@
   "id": "world-codex",
   "title": "World Codex & Gazette",
   "description": "A GM-managed illustrated world encyclopedia with freely created categories and a printable, publishable fantasy newspaper builder.",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "authors": [
     {
       "name": "Daikaze"
@@ -36,5 +36,5 @@
   ],
   "url": "https://github.com/Daikaze/Info-Library",
   "manifest": "https://raw.githubusercontent.com/Daikaze/Info-Library/main/module.json",
-  "download": "https://raw.githubusercontent.com/Daikaze/Info-Library/main/world-codex-v0.1.0-v11.zip"
+  "download": "https://raw.githubusercontent.com/Daikaze/Info-Library/main/world-codex-v0.1.2-v11.zip"
 }

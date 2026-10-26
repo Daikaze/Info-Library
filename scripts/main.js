@@ -25,20 +25,110 @@ const wcDateDisplay = (x) => {
   // A date is author-provided, so retain fantasy calendar strings without reinterpretation.
   return String(x);
 };
+// Markdown-style horizontal rules work in old plain-text records as well as in rich editor content.
+const wcIsDivider = text => /^\s*-{3,}\s*$/.test(String(text ?? ""));
 function wcMarkdown(raw) {
   const txt = String(raw ?? "").replace(/\r/g, "");
   if (!txt.trim()) return `<p class="wc-muted">No content yet.</p>`;
-  return txt.split(/\n\s*\n/).map((block) => {
-    const lines = block.split("\n");
-    if (lines.length === 1 && /^#{1,3} /.test(lines[0])) {
-      const level = Math.min(3, lines[0].match(/^#+/)[0].length);
-      return `<h${level + 2}>${wcInline(lines[0].replace(/^#{1,3} /, ""))}</h${level + 2}>`;
+  // Preserve paragraph/heading formatting while supporting --- on a line of its own,
+  // even when the author didn't add blank lines on either side.
+  return txt.split(/\n\s*\n/).flatMap(block => {
+    let lines = [];
+    const result = [];
+    const flush = () => {
+      if (!lines.length) return;
+      if (lines.length === 1 && /^#{1,3} /.test(lines[0])) {
+        const level = Math.min(3, lines[0].match(/^#+/)[0].length);
+        result.push(`<h${level + 2}>${wcInline(lines[0].replace(/^#{1,3} /, ""))}</h${level + 2}>`);
+      } else result.push(`<p>${lines.map(wcInline).join("<br>")}</p>`);
+      lines = [];
+    };
+    for (const line of block.split("\n")) {
+      if (wcIsDivider(line)) { flush(); result.push("<hr>"); }
+      else lines.push(line);
     }
-    return `<p>${lines.map(wcInline).join("<br>")}</p>`;
+    flush();
+    return result;
   }).join("");
 }
 function wcInline(s) {
   return wcEsc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
+}
+// Explicit marker distinguishes new rich HTML from older Markdown/plain-text records.
+const WC_RICH_PREFIX = "wc-rich-v1:";
+const wcWidth = (value) => {
+  const n = Number.parseInt(String(value ?? "100"), 10);
+  return Number.isFinite(n) ? Math.max(10, Math.min(100, n)) : 100;
+};
+const wcAlign = (value) => ["left", "center", "right"].includes(value) ? value : "center";
+function wcSanitizeRich(html) {
+  // Never render raw imported HTML. Strip tags/attributes outside this allowlist,
+  // including events, arbitrary styles, scripts, iframes and executable URLs.
+  const doc = new DOMParser().parseFromString(String(html ?? ""), "text/html");
+  const allowed = new Set(["p", "div", "span", "h2", "h3", "h4", "h5", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "blockquote", "br", "hr", "a", "img"]);
+  const walk = (node) => {
+    if (node.nodeType === 3) return wcEsc(node.nodeValue);
+    if (node.nodeType !== 1) return "";
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "iframe", "object", "embed", "svg", "math", "form", "template"].includes(tag)) return "";
+    // Existing rich entries containing a standalone --- paragraph also render as dividers.
+    if (["p", "div"].includes(tag) && !node.querySelector("img,hr,ul,ol,table") && wcIsDivider(node.textContent)) return "<hr>";
+    if (tag === "img") {
+      const src = wcImage(node.getAttribute("src"));
+      if (!src) return "";
+      const width = wcWidth(node.getAttribute("data-wc-width") || node.getAttribute("width") || node.style.width);
+      const align = wcAlign(node.getAttribute("data-wc-align"));
+      return `<img src="${wcAttr(src)}" alt="${wcAttr(node.getAttribute("alt") || "Illustration")}" data-wc-width="${width}" data-wc-align="${align}" style="width:${width}%;max-width:100%;height:auto;display:block;margin-left:${align === "left" ? "0" : "auto"};margin-right:${align === "right" ? "0" : "auto"}">`;
+    }
+    const children = Array.from(node.childNodes).map(walk).join("");
+    if (!allowed.has(tag)) return children;
+    if (tag === "a") {
+      const href = wcImage(node.getAttribute("href"));
+      return href ? `<a href="${wcAttr(href)}" rel="noopener noreferrer">${children}</a>` : children;
+    }
+    if (["br", "hr"].includes(tag)) return `<${tag}>`;
+    return `<${tag}>${children}</${tag}>`;
+  };
+  return Array.from(doc.body.childNodes).map(walk).join("");
+}
+function wcContent(raw) {
+  const value = String(raw ?? "");
+  if (!value.startsWith(WC_RICH_PREFIX)) return wcMarkdown(value);
+  const html = wcSanitizeRich(value.slice(WC_RICH_PREFIX.length));
+  return html.trim() ? html : `<p class="wc-muted">No content yet.</p>`;
+}
+function wcEditContent(raw) {
+  const value = String(raw ?? "");
+  return value.startsWith(WC_RICH_PREFIX) ? wcSanitizeRich(value.slice(WC_RICH_PREFIX.length))
+    : value.trim() ? wcMarkdown(value) : "<p></p>";
+}
+function wcRichField(field, value, label) {
+  return `<div class="wc-field wc-wide wc-rich-field"><span>${wcEsc(label)}</span>
+    <div class="wc-editor-toolbar" data-wc-editor-tools="${wcAttr(field)}">
+    <button type="button" data-wc-format="bold" data-field="${wcAttr(field)}" title="Bold"><b>B</b></button>
+    <button type="button" data-wc-format="italic" data-field="${wcAttr(field)}" title="Italic"><em>I</em></button>
+    <button type="button" data-wc-format="formatBlock" data-value="p" data-field="${wcAttr(field)}" title="Paragraph">P</button>
+    <button type="button" data-wc-format="formatBlock" data-value="h3" data-field="${wcAttr(field)}" title="Heading">H</button>
+    <button type="button" data-wc-format="insertUnorderedList" data-field="${wcAttr(field)}" title="Bullet List">${wcIcon("list-ul")}</button>
+    <button type="button" data-wc-insert-rule="${wcAttr(field)}" title="Insert horizontal divider">${wcIcon("minus")} Divider</button>
+    <button type="button" data-wc-insert-image="${wcAttr(field)}" title="Insert image from Foundry files">${wcIcon("image")} Insert Image</button>
+    <button type="button" data-wc-image-url="${wcAttr(field)}" title="Insert image by URL">${wcIcon("link")} Image URL</button>
+    </div>
+    <div class="wc-editor-shell"><div class="wc-rich-editable" data-wc-rich="${wcAttr(field)}" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${wcAttr(label)}">${wcEditContent(value)}</div>
+      <div class="wc-image-resize-handle" title="Drag to resize image" hidden></div></div>
+    <div class="wc-image-tools" data-wc-image-tools="${wcAttr(field)}" hidden>
+      <span>${wcIcon("image")} Selected image</span>
+      <label>Size <input type="range" min="10" max="100" step="5" data-wc-image-size="${wcAttr(field)}" value="100"><output>100%</output></label>
+      <button type="button" data-wc-image-align="left" title="Align left">${wcIcon("align-left")}</button>
+      <button type="button" data-wc-image-align="center" title="Center">${wcIcon("align-center")}</button>
+      <button type="button" data-wc-image-align="right" title="Align right">${wcIcon("align-right")}</button>
+      <button type="button" data-wc-remove-image title="Remove image">${wcIcon("trash")}</button>
+    </div>
+    <small class="wc-editor-hint">Type --- on a separate line and press Enter to insert a divider, or click Divider. Illustrations support individual resize and alignment.</small>
+  </div>`;
+}
+function wcPercentField(field, value, label) {
+  return `<label class="wc-field"><span>${wcEsc(label)}</span><input type="number" min="10" max="100" step="5" data-wc-field="${wcAttr(field)}" value="${wcWidth(value)}" title="10–100%"></label>`;
 }
 function wcTextField(field, value, label, placeholder = "", more = "") {
   return `<label class="wc-field"><span>${wcEsc(label)}</span><input type="text" data-wc-field="${wcAttr(field)}" value="${wcAttr(value)}" placeholder="${wcAttr(placeholder)}" ${more}></label>`;
@@ -46,8 +136,20 @@ function wcTextField(field, value, label, placeholder = "", more = "") {
 function wcArea(field, value, label, placeholder = "", rows = 6) {
   return `<label class="wc-field wc-wide"><span>${wcEsc(label)}</span><textarea rows="${rows}" data-wc-field="${wcAttr(field)}" placeholder="${wcAttr(placeholder)}">${wcEsc(value)}</textarea></label>`;
 }
+// Accessible custom menu: native select remains the source of truth but is visually
+// hidden so Windows/Firefox and Foundry V11 can't override popup text colors.
+function wcDropdown(name, selected, choices, dataset, className = "") {
+  const items = choices.length ? choices : [["", "No options yet"]];
+  const current = items.find(([value]) => String(value) === String(selected)) || items[0];
+  const attrs = dataset === "category" ? "data-wc-category" : `data-wc-field="${wcAttr(name)}"`;
+  return `<div class="wc-dropdown ${wcAttr(className)}" data-wc-dropdown>
+    <select class="wc-native-select" ${attrs} tabindex="-1" aria-hidden="true">${items.map(([value, text]) => `<option value="${wcAttr(value)}" ${String(value) === String(current[0]) ? "selected" : ""}>${wcEsc(text)}</option>`).join("")}</select>
+    <button type="button" class="wc-dropdown-trigger" data-wc-dropdown-trigger aria-haspopup="listbox" aria-expanded="false" aria-label="${wcAttr(name === "category" ? "Filter categories" : name)}"><span class="wc-dropdown-label">${wcEsc(current[1])}</span>${wcIcon("chevron-down")}</button>
+    <div class="wc-dropdown-menu" role="listbox" hidden>${items.map(([value, text]) => `<button type="button" role="option" data-wc-dropdown-option="${wcAttr(value)}" aria-selected="${String(value) === String(current[0])}">${wcEsc(text)}</button>`).join("")}</div>
+  </div>`;
+}
 function wcSelect(field, selected, label, choices) {
-  return `<label class="wc-field"><span>${wcEsc(label)}</span><select data-wc-field="${wcAttr(field)}">${choices.map(([v, text]) => `<option value="${wcAttr(v)}" ${String(v) === String(selected) ? "selected" : ""}>${wcEsc(text)}</option>`).join("")}</select></label>`;
+  return `<div class="wc-field"><span>${wcEsc(label)}</span>${wcDropdown(field, selected, choices, "field")}</div>`;
 }
 function wcEmpty(icon, title, text, action = "", button = "") {
   return `<section class="wc-empty"><div class="wc-empty-icon">${wcIcon(icon)}</div><h2>${wcEsc(title)}</h2><p>${wcEsc(text)}</p>${action ? wcBtn(action, button, "plus", "wc-primary") : ""}</section>`;
@@ -59,13 +161,13 @@ function wcFigure(src, alt, cls = "") {
 function wcPaperArticle(article = {}) {
   const style = ["lead", "standard", "notice"].includes(article.layout) ? article.layout : "standard";
   const picture = wcImage(article.image);
-  const pictureHTML = picture ? `<figure class="wc-article-figure">${wcFigure(picture, article.headline)}${article.caption ? `<figcaption>${wcEsc(article.caption)}</figcaption>` : ""}</figure>` : "";
+  const pictureHTML = picture ? `<figure class="wc-article-figure">${wcFigure(picture, article.headline, "wc-article-photo").replace("<img ", `<img style="width:${wcWidth(article.imageWidth)}%" `)}${article.caption ? `<figcaption>${wcEsc(article.caption)}</figcaption>` : ""}</figure>` : "";
   return `<article class="wc-paper-story wc-story-${style}">
     ${article.kicker ? `<div class="wc-story-kicker">${wcEsc(article.kicker)}</div>` : ""}
     <h3>${wcEsc(article.headline || "Untitled Article")}</h3>
     ${article.byline ? `<div class="wc-story-byline">BY ${wcEsc(article.byline)}</div>` : ""}
     ${pictureHTML}
-    <div class="wc-story-copy">${wcMarkdown(article.body)}</div>
+    <div class="wc-story-copy">${wcContent(article.body)}</div>
   </article>`;
 }
 function wcPaperPage(issue, page, pageIndex) {
@@ -77,7 +179,7 @@ function wcPaperPage(issue, page, pageIndex) {
     <div class="wc-paper-topline"><span>${wcEsc(issue.edition || "SPECIAL EDITION")}</span><span>${wcEsc(wcDateDisplay(issue.date))}</span><span>${wcEsc(issue.price || "FREE")}</span></div>
     <header class="wc-paper-masthead"><h1>${wcEsc(paperName)}</h1>${issue.motto ? `<p>${wcEsc(issue.motto)}</p>` : ""}</header>
     ${cover ? `<div class="wc-paper-banner"><span>${wcEsc(issue.kicker || "LATEST NEWS")}</span><h2>${wcEsc(issue.title || "The Latest Edition")}</h2>${issue.subtitle ? `<p>${wcEsc(issue.subtitle)}</p>` : ""}</div>` : `<div class="wc-paper-section"><h2>${wcEsc(page.title || `Page ${pageIndex + 1}`)}</h2></div>`}
-    ${cover && wcImage(issue.coverImage) ? `<figure class="wc-paper-cover">${wcFigure(issue.coverImage, issue.title)}</figure>` : ""}
+    ${cover && wcImage(issue.coverImage) ? `<figure class="wc-paper-cover">${wcFigure(issue.coverImage, issue.title).replace("<img ", `<img style="width:${wcWidth(issue.coverWidth)}%" `)}</figure>` : ""}
     <div class="wc-paper-articles">${articles.map(wcPaperArticle).join("") || `<p class="wc-paper-empty">No articles on this page yet.</p>`}</div>
     <footer class="wc-paper-footer"><span>${wcEsc(paperName)}</span><span>${wcEsc(issue.edition || "")}</span><span>PAGE ${pageIndex + 1} / ${(issue.pages || []).length}</span></footer>
   </section>`;
@@ -97,7 +199,7 @@ function wcSafeImport(raw) {
   const validCategories = new Set(categories.map(c => c.id));
   const entries = raw.entries.map(e => ({
     id: String(e.id || wcId()), categoryId: validCategories.has(String(e.categoryId)) ? String(e.categoryId) : "",
-    name: String(e.name || "Untitled"), subtitle: String(e.subtitle || ""), image: wcImage(e.image),
+    name: String(e.name || "Untitled"), subtitle: String(e.subtitle || ""), image: wcImage(e.image), imageWidth: wcWidth(e.imageWidth),
     summary: String(e.summary || ""), body: String(e.body || ""),
     tags: Array.isArray(e.tags) ? e.tags.slice(0, 40).map(String) : [],
     fields: Array.isArray(e.fields) ? e.fields.slice(0, 50).map(f => ({label: String(f.label || ""), value: String(f.value || "")})) : [],
@@ -108,12 +210,12 @@ function wcSafeImport(raw) {
     title: String(issue.title || "Untitled Issue"), subtitle: String(issue.subtitle || ""),
     date: String(issue.date || ""), edition: String(issue.edition || ""), price: String(issue.price || ""),
     kicker: String(issue.kicker || ""), theme: ["parchment", "ivory", "noir"].includes(issue.theme) ? issue.theme : "parchment",
-    coverImage: wcImage(issue.coverImage), published: !!issue.published,
+    coverImage: wcImage(issue.coverImage), coverWidth: wcWidth(issue.coverWidth), published: !!issue.published,
     pages: (Array.isArray(issue.pages) ? issue.pages : []).slice(0, 100).map(page => ({
       id: String(page.id || wcId()), title: String(page.title || ""),
       articles: (Array.isArray(page.articles) ? page.articles : []).slice(0, 100).map(a => ({
         id: String(a.id || wcId()), headline: String(a.headline || ""), kicker: String(a.kicker || ""),
-        byline: String(a.byline || ""), body: String(a.body || ""), image: wcImage(a.image),
+        byline: String(a.byline || ""), body: String(a.body || ""), image: wcImage(a.image), imageWidth: wcWidth(a.imageWidth),
         caption: String(a.caption || ""), layout: ["lead", "standard", "notice"].includes(a.layout) ? a.layout : "standard"
       }))
     }))
@@ -132,6 +234,7 @@ class WorldCodex extends Application {
     this.view = "browse";
     this.query = "";
     this.categoryFilter = "all";
+    this.collapsedGroups = new Set();
     this.entryId = null;
     this.issueId = null;
     this.pageId = null;
@@ -167,17 +270,32 @@ class WorldCodex extends Application {
     const entries = (data.entries || []).filter(x => this.isGM || x.visibility === "players");
     const filtered = entries.filter(e => (this.categoryFilter === "all" || e.categoryId === this.categoryFilter) &&
       `${e.name} ${e.subtitle} ${e.summary} ${(e.tags || []).join(" ")}`.toLowerCase().includes(this.query.toLowerCase()));
-    const items = filtered.map(e => {
+    const entryRow = e => {
       const c = categories.find(c => c.id === e.categoryId);
       return `<button type="button" class="wc-entry-row ${e.id === this.entryId ? "wc-active" : ""}" data-wc-action="select-entry" data-id="${wcAttr(e.id)}">
-      ${wcFigure(e.image, e.name, "wc-thumb")}
-      <span class="wc-row-meta"><strong>${wcEsc(e.name)}</strong><small>${wcEsc(e.subtitle)}</small><em>${wcEsc(c?.name || "Uncategorized")}</em></span>${this.isGM && e.visibility !== "players" ? wcIcon("lock") : wcIcon("chevron-right")}</button>`;
-    });
+        ${wcFigure(e.image, e.name, "wc-thumb")}
+        <span class="wc-row-meta"><strong>${wcEsc(e.name)}</strong><small>${wcEsc(e.subtitle)}</small><em>${wcEsc(c?.name || "Uncategorized")}</em></span>${this.isGM && e.visibility !== "players" ? wcIcon("lock") : wcIcon("chevron-right")}</button>`;
+    };
+    // In All Categories, preserve the DM's category ordering and group records
+    // under distinct headers. Orphan entries remain accessible as Uncategorized.
+    const groups = this.categoryFilter === "all"
+      ? [...categories.map(c => ({id:c.id, name:c.name, color:wcColor(c.color), entries:filtered.filter(e => e.categoryId === c.id)})),
+        {id:"", name:"Uncategorized", color:"#8995a7", entries:filtered.filter(e => !categories.some(c => c.id === e.categoryId))}]
+        .filter(g => g.entries.length)
+      : [];
+    const items = this.categoryFilter === "all"
+      ? groups.map(g => `<section class="wc-entry-group" style="--wc-group-accent:${g.color}">
+        <button type="button" class="wc-group-heading" data-wc-group-toggle="${wcAttr(g.id)}" aria-expanded="${!this.collapsedGroups?.has(g.id)}" title="Toggle ${wcAttr(g.name)}">
+          ${wcIcon(this.collapsedGroups?.has(g.id) ? "chevron-right" : "chevron-down")}
+          <span>${wcEsc(g.name)}</span><b>${g.entries.length}</b></button>
+        <div class="wc-group-entries" ${this.collapsedGroups?.has(g.id) ? "hidden" : ""}>${g.entries.map(entryRow).join("")}</div>
+      </section>`).join("")
+      : filtered.map(entryRow).join("");
     return `<div class="wc-sidebar-heading"><span class="wc-kicker">WORLD ENCYCLOPEDIA</span><div class="wc-sidebar-title"><h2>${wcIcon("book")} Codex</h2>${this.isGM ? wcBtn("new-entry", "", "plus", "wc-icon-button") : ""}</div></div>
       <label class="wc-search">${wcIcon("search")}<input data-wc-search type="search" placeholder="Search names, history, tags..." value="${wcAttr(this.query)}"></label>
-      <select class="wc-category-select" data-wc-category><option value="all">All Categories</option>${categories.map(c => `<option value="${wcAttr(c.id)}" ${this.categoryFilter === c.id ? "selected" : ""}>${wcEsc(c.name)}</option>`).join("")}</select>
+      ${wcDropdown("category", this.categoryFilter, [["all", "All Categories"], ...categories.map(c => [c.id, c.name])], "category", "wc-category-dropdown")}
       <div class="wc-count"><span>ENTRIES</span><b>${filtered.length} / ${entries.length}</b></div>
-      <div class="wc-list">${items.join("") || `<div class="wc-list-empty">${wcIcon("inbox")}<p>No matching entries</p></div>`}</div>
+      <div class="wc-list">${items || `<div class="wc-list-empty">${wcIcon("inbox")}<p>No matching entries</p></div>`}</div>
       <div class="wc-sidebar-footer">${this.isGM ? `${wcBtn("categories", "Categories", "layer-group")}${wcBtn("backup", "Backup", "download")}${wcBtn("import", "Import", "file-import")}` : "Published world lore"}</div>`;
   }
   _codexMain(data) {
@@ -189,14 +307,14 @@ class WorldCodex extends Application {
     const category = data.categories.find(x => x.id === entry.categoryId);
     return `<section class="wc-profile">
       <div class="wc-profile-head">
-        <div class="wc-profile-art">${wcFigure(entry.image, entry.name)}${wcImage(entry.image) ? `<div class="wc-image-actions">${wcBtn("open-entry-image", "View Art", "image")}</div>` : ""}</div>
+        <div class="wc-profile-art">${wcFigure(entry.image, entry.name).replace("<img ", `<img style="width:${wcWidth(entry.imageWidth)}%" `)}${wcImage(entry.image) ? `<div class="wc-image-actions">${wcBtn("open-entry-image", "View Art", "image")}</div>` : ""}</div>
         <div class="wc-profile-overview"><div class="wc-kicker">${wcEsc(category?.name || "UNCATEGORIZED")} ${entry.visibility === "gm" && this.isGM ? "◆ GM ONLY" : "◆ PUBLIC"}</div><h1>${wcEsc(entry.name)}</h1>
         <h3>${wcEsc(entry.subtitle || "World Record")}</h3>
         <div class="wc-pill-group">${(entry.tags || []).map(t => `<span class="wc-pill">${wcEsc(t)}</span>`).join("")}</div>
         ${this.isGM ? `<div class="wc-toolbar">${wcBtn("edit-entry", "Edit", "pen", "wc-primary")}${wcBtn("duplicate-entry", "Duplicate", "copy")}${entry.visibility === "players" ? wcBtn("show-entry", "Show Players", "users") : ""}${wcBtn("delete-entry", "", "trash", "wc-danger")}</div>` : ""}</div>
       </div>
-      <div class="wc-profile-reading">${entry.summary ? `<div class="wc-summary">${wcMarkdown(entry.summary)}</div>` : ""}
-      <h2>History & Details</h2><div class="wc-rich-text">${wcMarkdown(entry.body)}</div>
+      <div class="wc-profile-reading">${entry.summary ? `<div class="wc-summary">${wcContent(entry.summary)}</div>` : ""}
+      <h2>History & Details</h2><div class="wc-rich-text">${wcContent(entry.body)}</div>
       ${(entry.fields || []).length ? `<div class="wc-profile-fields"><h2>Additional Information</h2><div class="wc-detail-grid">${entry.fields.filter(f => f.label || f.value).map(f => `<div class="wc-detail"><span>${wcEsc(f.label)}</span><strong>${wcEsc(f.value)}</strong></div>`).join("")}</div></div>` : ""}
       </div></section>`;
   }
@@ -219,9 +337,10 @@ class WorldCodex extends Application {
     ${wcSelect("visibility", d.visibility, "Who can read this?", [["gm", "GM only"], ["players", "Players (published)"]])}
     ${wcTextField("name", d.name, "Name", "The Imperial Capital")}${wcTextField("subtitle", d.subtitle, "Subtitle", "Heart of the Empire")}
     <div class="wc-media-field">${wcTextField("image", d.image, "Image Path / URL", "worlds/my-world/art/capital.webp")}${wcBtn("pick-image", "Browse", "image", "", 'data-field="image"')}</div>
+    ${wcPercentField("imageWidth", d.imageWidth, "Main Artwork Size (%)")}
     ${wcTextField("tags", (d.tags || []).join(", "), "Tags (comma separated)", "Capital, Trade, Political")}
-    ${wcArea("summary", d.summary, "Featured Summary", "A short introduction highlighted below the image.", 4)}
-    ${wcArea("body", d.body, "History, Lore & Description", "Use blank lines for paragraphs, **bold** and *italic* for emphasis.", 13)}</div>
+    ${wcRichField("summary", d.summary, "Featured Summary")}
+    ${wcRichField("body", d.body, "History, Lore & Description")}</div>
     <section class="wc-form-section"><div class="wc-section-heading"><h2>Custom Information Fields</h2>${wcBtn("add-field", "Add Field", "plus")}</div>
     ${fields.map((f, i) => `<div class="wc-custom-field">${wcTextField(`fields.${i}.label`, f.label, "Label", "Leader / Population / Affiliation")}${wcTextField(`fields.${i}.value`, f.value, "Value", "Field value")}${wcBtn("remove-field", "", "trash", "wc-danger", `data-index="${i}"`)}</div>`).join("") || `<p class="wc-muted">Optional: add details specific to this entry.</p>`}</section>
     <div class="wc-edit-bottom">${wcBtn("save-entry", "Save Entry", "save", "wc-primary")}${wcBtn("back", "Cancel", "times")}</div></section>`;
@@ -260,7 +379,8 @@ class WorldCodex extends Application {
      ${wcTextField("date", d.date, "In-World Date", "06/06/602")}${wcTextField("edition", d.edition, "Edition Label", "VOL. 3 • SPECIAL")}
      ${wcTextField("price", d.price, "Price / Status", "2 CP / FREE")}${wcTextField("kicker", d.kicker, "Topline", "BREAKING NEWS")}
      ${wcSelect("theme", d.theme, "Paper Theme", [["parchment", "Aged Parchment"], ["ivory", "Classic Ivory"], ["noir", "Midnight Press"]])}
-     <div class="wc-media-field">${wcTextField("coverImage", d.coverImage, "Front Cover Image (optional)", "worlds/my-world/art/map.webp")}${wcBtn("pick-image", "Browse", "image", "", 'data-field="coverImage"')}</div></div>
+     <div class="wc-media-field">${wcTextField("coverImage", d.coverImage, "Front Cover Image (optional)", "worlds/my-world/art/map.webp")}${wcBtn("pick-image", "Browse", "image", "", 'data-field="coverImage"')}</div>
+     ${wcPercentField("coverWidth", d.coverWidth, "Cover Image Size (%)")}</div>
      <div class="wc-edit-bottom">${wcBtn("save-issue", "Save Issue", "save", "wc-primary")}${wcBtn("back", "Cancel", "times")}</div></section>`;
   }
   _pageForm() {
@@ -274,10 +394,159 @@ class WorldCodex extends Application {
      <div class="wc-form-grid">${wcTextField("headline", d.headline, "Headline", "The Emperor Addresses the Nation")}${wcTextField("kicker", d.kicker, "Section / Kicker", "FRONT PAGE / POLITICS")}
      ${wcTextField("byline", d.byline, "Author / Byline", "Izmet Times Editorial")}
      ${wcSelect("layout", d.layout, "Layout", [["lead", "Lead Story — Full Width"], ["standard", "Regular Story — Column"], ["notice", "Short Notice — Compact"]])}
-     ${wcArea("body", d.body, "Article Text", "Write your report here. Use a blank line for a new paragraph; **bold** and *italic* are supported.", 15)}
+     ${wcRichField("body", d.body, "Article Text & Images")}
      <div class="wc-media-field">${wcTextField("image", d.image, "Illustration / Map Path", "worlds/my-world/art/image.webp")}${wcBtn("pick-image", "Browse", "image", "", 'data-field="image"')}</div>
+     ${wcPercentField("imageWidth", d.imageWidth, "Illustration Size (%)")}
      ${wcTextField("caption", d.caption, "Image Caption", "The missing continent, as last mapped")}</div>
      <div class="wc-edit-bottom">${wcBtn("save-article", "Save Article", "save", "wc-primary")}${wcBtn("back", "Cancel", "times")}</div></section>`;
+  }
+  _restoreRichCaret(editor, field) {
+    const saved = this._richCaret?.field === field ? this._richCaret.range : null;
+    const selection = window.getSelection();
+    if (saved && editor.contains(saved.commonAncestorContainer)) {
+      selection.removeAllRanges(); selection.addRange(saved);
+      return saved;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(editor); range.collapse(false);
+    selection.removeAllRanges(); selection.addRange(range);
+    return range;
+  }
+  _insertDivider(editor, replaceMarkdown = false) {
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+    let block = range.startContainer;
+    while (block && block.parentNode !== editor) block = block.parentNode;
+    const hr = document.createElement("hr");
+    const next = document.createElement("p");
+    if (replaceMarkdown) {
+      // Enter after --- transforms that entire line without affecting neighbors.
+      if (!block || block === editor || !wcIsDivider(block.textContent)) return;
+      next.appendChild(document.createElement("br"));
+      block.replaceWith(hr, next);
+    } else if (block && block !== editor && block.nodeType === 1 && /^(P|DIV|H2|H3|H4|H5)$/.test(block.tagName)) {
+      // A toolbar rule splits the current paragraph at the caret, so we do not
+      // end up storing invalid <p><hr> nesting or deleting neighboring text.
+      const after = range.cloneRange();
+      after.selectNodeContents(block);
+      after.setStart(range.startContainer, range.startOffset);
+      next.appendChild(after.extractContents());
+      if (!next.textContent.trim() && !next.querySelector("img")) next.replaceChildren(document.createElement("br"));
+      block.after(hr, next);
+      if (!block.textContent.trim() && !block.querySelector("img")) block.remove();
+    } else if (block && block !== editor) {
+      // When editing inside lists/quotes, insert after that top-level block.
+      next.appendChild(document.createElement("br"));
+      block.after(hr, next);
+    } else {
+      range.deleteContents();
+      next.appendChild(document.createElement("br"));
+      range.insertNode(next); range.insertNode(hr);
+    }
+    const caret = document.createRange();
+    caret.setStart(next, 0); caret.collapse(true);
+    selection.removeAllRanges(); selection.addRange(caret);
+    this._syncRich(editor); this._rememberCaret(editor);
+    this._chooseImage(null);
+  }
+  _closeDropdowns(except = null) {
+    this.element?.find?.("[data-wc-dropdown]")?.each?.((_, el) => {
+      if (el === except) return;
+      el.classList.remove("wc-open");
+      const menu = el.querySelector(".wc-dropdown-menu");
+      if (menu) menu.hidden = true;
+      el.querySelector("[data-wc-dropdown-trigger]")?.setAttribute("aria-expanded", "false");
+    });
+  }
+  _syncRich(element) {
+    if (!this.draft || !element) return;
+    const field = element.dataset.wcRich;
+    if (!field || !["body", "summary"].includes(field)) return;
+    this.draft[field] = WC_RICH_PREFIX + wcSanitizeRich(element.innerHTML);
+  }
+  _syncAllRich() {
+    this.element?.find?.("[data-wc-rich]")?.each?.((_, element) => this._syncRich(element));
+  }
+  _rememberCaret(editor) {
+    const selection = window.getSelection();
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      this._richCaret = {field:editor.dataset.wcRich, range:selection.getRangeAt(0).cloneRange()};
+    }
+  }
+  _editorFor(field) { return this.element?.find?.(`[data-wc-rich="${field}"]`)?.[0] || null; }
+  _insertRichImage(path, field) {
+    const url = wcImage(path);
+    const editor = this._editorFor(field);
+    if (!url || !editor || !this.draft) return;
+    editor.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    const saved = this._richCaret?.field === field ? this._richCaret.range : null;
+    if (saved && editor.contains(saved.commonAncestorContainer)) {
+      range.setStart(saved.startContainer, saved.startOffset);
+      range.setEnd(saved.endContainer, saved.endOffset);
+    } else { range.selectNodeContents(editor); range.collapse(false); }
+    range.deleteContents();
+    const img = document.createElement("img");
+    img.src = url; img.alt = "Illustration";
+    img.dataset.wcWidth = "70"; img.dataset.wcAlign = "center";
+    this._applyImageStyle(img);
+    range.insertNode(img);
+    range.setStartAfter(img); range.collapse(true);
+    selection.removeAllRanges(); selection.addRange(range);
+    this._syncRich(editor);
+    this._chooseImage(img);
+  }
+  _applyImageStyle(img) {
+    const width = wcWidth(img.dataset.wcWidth);
+    const align = wcAlign(img.dataset.wcAlign);
+    img.dataset.wcWidth = String(width);
+    img.dataset.wcAlign = align;
+    img.style.width = `${width}%`;
+    img.style.maxWidth = "100%"; img.style.height = "auto"; img.style.display = "block";
+    img.style.marginLeft = align === "left" ? "0" : "auto";
+    img.style.marginRight = align === "right" ? "0" : "auto";
+  }
+  _chooseImage(img) {
+    this.element?.find?.(".wc-rich-editable img.wc-image-selected")?.removeClass("wc-image-selected");
+    this._selectedImage = img || null;
+    this.element?.find?.(".wc-image-tools")?.attr("hidden", true);
+    this.element?.find?.(".wc-image-resize-handle")?.attr("hidden", true);
+    if (!img || !img.isConnected) return;
+    img.classList.add("wc-image-selected");
+    const field = img.closest("[data-wc-rich]")?.dataset.wcRich;
+    const tools = this.element?.find?.(`[data-wc-image-tools="${field}"]`);
+    tools?.removeAttr("hidden");
+    tools?.find("[data-wc-image-size]").val(wcWidth(img.dataset.wcWidth));
+    tools?.find("output").text(`${wcWidth(img.dataset.wcWidth)}%`);
+    this._positionHandle();
+  }
+  _positionHandle() {
+    const img = this._selectedImage;
+    if (!img?.isConnected) return;
+    const shell = img.closest(".wc-editor-shell");
+    const handle = shell?.querySelector(".wc-image-resize-handle");
+    if (!handle) return;
+    const rect = img.getBoundingClientRect();
+    const parent = shell.getBoundingClientRect();
+    handle.style.left = `${rect.right - parent.left - 8}px`;
+    handle.style.top = `${rect.bottom - parent.top - 8}px`;
+    handle.hidden = false;
+  }
+  _setImageSize(value) {
+    const img = this._selectedImage;
+    if (!img?.isConnected) return;
+    img.dataset.wcWidth = String(wcWidth(value));
+    this._applyImageStyle(img);
+    const editor = img.closest("[data-wc-rich]");
+    const tools = this.element.find(`[data-wc-image-tools="${editor.dataset.wcRich}"]`);
+    tools.find("[data-wc-image-size]").val(wcWidth(value));
+    tools.find("output").text(`${wcWidth(value)}%`);
+    this._positionHandle(); this._syncRich(editor);
   }
   activateListeners(html) {
     super.activateListeners(html);
@@ -285,12 +554,130 @@ class WorldCodex extends Application {
     html.on("input", "[data-wc-search]", (ev) => {
       this.query = ev.currentTarget.value;
       // Preserve focus and cursor by updating just the list / count instead of re-rendering the window.
-      const fresh = $(this._codexSidebar(this.store));
+      const fresh = $(`<div>${this._codexSidebar(this.store)}</div>`);
       html.find(".wc-list").html(fresh.find(".wc-list").html());
       html.find(".wc-count").html(fresh.find(".wc-count").html());
     });
     html.on("change", "[data-wc-category]", (ev) => { this.categoryFilter = ev.currentTarget.value; this.render(); });
+    html.on("click", "[data-wc-group-toggle]", (ev) => {
+      const id = ev.currentTarget.dataset.wcGroupToggle;
+      if (this.collapsedGroups.has(id)) this.collapsedGroups.delete(id);
+      else this.collapsedGroups.add(id);
+      const section = ev.currentTarget.closest(".wc-entry-group");
+      const expanded = !this.collapsedGroups.has(id);
+      ev.currentTarget.setAttribute("aria-expanded", String(expanded));
+      ev.currentTarget.querySelector("i")?.classList.toggle("fa-chevron-right", !expanded);
+      ev.currentTarget.querySelector("i")?.classList.toggle("fa-chevron-down", expanded);
+      if (section) section.querySelector(".wc-group-entries").hidden = !expanded;
+    });
+    html.on("click", "[data-wc-dropdown-trigger]", (ev) => {
+      const root = ev.currentTarget.closest("[data-wc-dropdown]");
+      const expanded = root.classList.contains("wc-open");
+      this._closeDropdowns();
+      root.classList.toggle("wc-open", !expanded);
+      root.querySelector(".wc-dropdown-menu").hidden = expanded;
+      ev.currentTarget.setAttribute("aria-expanded", String(!expanded));
+      if (!expanded) root.querySelector('[aria-selected="true"]')?.scrollIntoView({block:"nearest"});
+    });
+    html.on("click", "[data-wc-dropdown-option]", (ev) => {
+      const root = ev.currentTarget.closest("[data-wc-dropdown]");
+      const select = root.querySelector("select");
+      select.value = ev.currentTarget.dataset.wcDropdownOption;
+      root.querySelector(".wc-dropdown-label").textContent = ev.currentTarget.textContent;
+      root.querySelectorAll("[data-wc-dropdown-option]").forEach(o => o.setAttribute("aria-selected", String(o === ev.currentTarget)));
+      this._closeDropdowns();
+      select.dispatchEvent(new Event("change", {bubbles:true}));
+    });
+    html.on("keydown", "[data-wc-dropdown-trigger], [data-wc-dropdown-option]", (ev) => {
+      const root = ev.currentTarget.closest("[data-wc-dropdown]");
+      if (ev.key === "Escape") { this._closeDropdowns(); root.querySelector("[data-wc-dropdown-trigger]").focus(); ev.preventDefault(); }
+      else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(ev.key)) {
+        ev.preventDefault();
+        if (!root.classList.contains("wc-open")) root.querySelector("[data-wc-dropdown-trigger]").click();
+        const options = Array.from(root.querySelectorAll("[data-wc-dropdown-option]"));
+        const current = options.indexOf(ev.currentTarget);
+        const selected = options.findIndex(o => o.getAttribute("aria-selected") === "true");
+        const index = ev.key === "Home" ? 0 : ev.key === "End" ? options.length - 1 :
+          (current >= 0 ? current : selected) + (ev.key === "ArrowDown" ? 1 : -1);
+        options[Math.max(0, Math.min(options.length - 1, index))]?.focus();
+      }
+    });
+    html.on("click", (ev) => { if (!ev.target.closest("[data-wc-dropdown]")) this._closeDropdowns(); });
+    html.on("keydown", "[data-wc-rich]", (ev) => {
+      if (ev.key !== "Enter" || ev.shiftKey || ev.isComposing || ev.originalEvent?.isComposing) return;
+      const editor = ev.currentTarget;
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !selection.isCollapsed || !editor.contains(selection.anchorNode)) return;
+      let block = selection.anchorNode;
+      while (block && block.parentNode !== editor) block = block.parentNode;
+      if (block && block !== editor && wcIsDivider(block.textContent)) {
+        ev.preventDefault(); this._insertDivider(editor, true);
+      }
+    });
+    html.on("mousedown", "[data-wc-insert-rule]", ev => ev.preventDefault());
+    html.on("click", "[data-wc-insert-rule]", (ev) => {
+      const field = ev.currentTarget.dataset.wcInsertRule;
+      const editor = this._editorFor(field);
+      if (!editor) return;
+      editor.focus(); this._restoreRichCaret(editor, field);
+      this._insertDivider(editor);
+    });
+
     html.on("input change", "[data-wc-field]", (ev) => this._updateDraft(ev));
+    html.on("input blur", "[data-wc-rich]", (ev) => this._syncRich(ev.currentTarget));
+    html.on("mouseup keyup", "[data-wc-rich]", (ev) => this._rememberCaret(ev.currentTarget));
+    html.on("click", "[data-wc-rich] img", (ev) => { ev.stopPropagation(); this._chooseImage(ev.currentTarget); });
+    html.on("click", "[data-wc-rich]", (ev) => { if (ev.target.tagName !== "IMG") this._chooseImage(null); });
+    html.on("mousedown", "[data-wc-format], [data-wc-insert-image], [data-wc-image-url]", (ev) => ev.preventDefault());
+    html.on("click", "[data-wc-format]", (ev) => {
+      const btn = ev.currentTarget;
+      const editor = this._editorFor(btn.dataset.field);
+      if (!editor) return;
+      editor.focus();
+      const selected = window.getSelection();
+      if (this._richCaret?.field === btn.dataset.field && editor.contains(this._richCaret.range.commonAncestorContainer)) {
+        selected.removeAllRanges(); selected.addRange(this._richCaret.range);
+      }
+      document.execCommand(btn.dataset.wcFormat, false, btn.dataset.value || null);
+      this._syncRich(editor); this._rememberCaret(editor);
+    });
+    html.on("click", "[data-wc-insert-image]", (ev) => {
+      const field = ev.currentTarget.dataset.wcInsertImage;
+      const editor = this._editorFor(field); if (!editor) return;
+      this._rememberCaret(editor);
+      new FilePicker({type:"image", callback:(path) => this._insertRichImage(path, field)}).render(true);
+    });
+    html.on("click", "[data-wc-image-url]", async (ev) => {
+      const field = ev.currentTarget.dataset.wcImageUrl;
+      const editor = this._editorFor(field); if (!editor) return;
+      this._rememberCaret(editor);
+      const url = await Dialog.prompt({title:"Insert Image URL", content:'<label>Image path or HTTPS URL <input type="text" name="image" style="width:100%"></label>', callback:html => html.find('[name="image"]').val()});
+      if (url) { if (!wcImage(url)) ui.notifications.warn("Invalid image path or URL."); else this._insertRichImage(url, field); }
+    });
+    html.on("input change", "[data-wc-image-size]", (ev) => this._setImageSize(ev.currentTarget.value));
+    html.on("click", "[data-wc-image-align]", (ev) => {
+      if (!this._selectedImage?.isConnected) return;
+      this._selectedImage.dataset.wcAlign = ev.currentTarget.dataset.wcImageAlign;
+      this._applyImageStyle(this._selectedImage);
+      this._positionHandle(); this._syncRich(this._selectedImage.closest("[data-wc-rich]"));
+    });
+    html.on("click", "[data-wc-remove-image]", () => {
+      const img = this._selectedImage; if (!img?.isConnected) return;
+      const editor = img.closest("[data-wc-rich]"); img.remove(); this._chooseImage(null); this._syncRich(editor);
+    });
+    html.on("pointerdown", ".wc-image-resize-handle", (ev) => {
+      if (!this._selectedImage?.isConnected) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const editor = this._selectedImage.closest("[data-wc-rich]");
+      const startX = ev.originalEvent?.clientX ?? ev.clientX;
+      const startWidth = wcWidth(this._selectedImage.dataset.wcWidth);
+      const editorWidth = editor.getBoundingClientRect().width;
+      const move = (event) => this._setImageSize(startWidth + (event.clientX - startX) * 100 / editorWidth);
+      const end = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end, {once:true});
+      window.addEventListener("pointercancel", end, {once:true});
+    });
   }
   _updateDraft(ev) {
     if (!this.draft) return;
@@ -345,19 +732,20 @@ class WorldCodex extends Application {
   }
   _startEntry(entry = null, data = this.store) {
     this.tab = "codex"; this.view = "entry-form"; this.editedId = entry?.id || null;
-    this.draft = entry ? wcClone(entry) : {id:wcId(),categoryId:this.categoryFilter !== "all" ? this.categoryFilter : (data.categories[0]?.id || ""), name:"", subtitle:"", image:"",summary:"",body:"",tags:[],fields:[],visibility:"gm",updatedAt:""};
+    this.draft = entry ? wcClone(entry) : {id:wcId(),categoryId:this.categoryFilter !== "all" ? this.categoryFilter : (data.categories[0]?.id || ""), name:"", subtitle:"", image:"",imageWidth:100,summary:"",body:"",tags:[],fields:[],visibility:"gm",updatedAt:""};
   }
   _startIssue(issue = null, data = this.store) {
     this.tab = "gazette"; this.view = "issue-form"; this.editedId = issue?.id || null;
-    this.draft = issue ? wcClone(issue) : {id:wcId(),paperName:data.preferences.paperName || "The Gazette", motto:data.preferences.paperMotto || "",title:"",subtitle:"",date:"",edition:"SPECIAL EDITION",price:"",kicker:"LATEST NEWS",theme:"parchment",coverImage:"",published:false,pages:[{id:wcId(),title:"Front Page",articles:[]}]};
+    this.draft = issue ? wcClone(issue) : {id:wcId(),paperName:data.preferences.paperName || "The Gazette", motto:data.preferences.paperMotto || "",title:"",subtitle:"",date:"",edition:"SPECIAL EDITION",price:"",kicker:"LATEST NEWS",theme:"parchment",coverImage:"",coverWidth:100,published:false,pages:[{id:wcId(),title:"Front Page",articles:[]}]};
   }
   _startArticle(article = null) {
     this.tab = "gazette"; this.view = "article-form"; this.editedId = article?.id || null;
-    this.draft = article ? wcClone(article) : {id:wcId(),headline:"",kicker:"",byline:"",body:"",image:"",caption:"",layout:"standard"};
+    this.draft = article ? wcClone(article) : {id:wcId(),headline:"",kicker:"",byline:"",body:"",image:"",imageWidth:100,caption:"",layout:"standard"};
   }
   async _onAction(ev) {
     const button = ev.currentTarget;
     const action = button.dataset.wcAction;
+    if (action.startsWith("save-")) this._syncAllRich();
     const id = button.dataset.id;
     const data = this.store;
     const gm = this.isGM;
@@ -576,15 +964,19 @@ function wcStandalonePaper(issue) {
   .wc-paper-masthead{text-align:center;border-bottom:5px double;margin-bottom:12px;padding:9px 0}.wc-paper-masthead h1{font-size:42px;margin:0;font-variant:small-caps;line-height:1.1}.wc-paper-masthead p{margin:3px 0;font-style:italic;font-size:12px}
   .wc-paper-banner{text-align:center;margin:14px 0}.wc-paper-banner span,.wc-story-kicker{font:bold 11px Georgia;color:#a24024;letter-spacing:1.4px}.wc-paper-banner h2{font-size:32px;line-height:1.1;margin:4px 0}.wc-paper-banner p{font-style:italic;margin:4px}
   .wc-paper-section{text-align:center;border-bottom:2px solid;margin:16px 0}.wc-paper-section h2{margin:5px}
-  .wc-paper-cover{margin:13px auto}.wc-paper-cover img{width:100%;max-height:75mm;object-fit:cover;display:block;filter:saturate(.8)}
+  .wc-paper-cover{margin:13px auto}.wc-paper-cover img{max-width:100%;height:auto;max-height:75mm;object-fit:contain;display:block;margin:auto;filter:saturate(.8)}
   .wc-paper-articles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px 21px;margin-top:18px}
   .wc-paper-story{min-width:0;break-inside:avoid}.wc-paper-story h3{font-size:19px;margin:4px 0 7px;line-height:1.1}.wc-story-lead{grid-column:1/-1}.wc-story-lead h3{font-size:28px}
   .wc-story-lead .wc-story-copy{columns:2;column-gap:20px}.wc-story-copy p{font-size:12px;line-height:1.6;margin:0 0 10px;text-align:justify}.wc-story-copy h3,.wc-story-copy h4,.wc-story-copy h5{margin:8px 0}
-  .wc-story-byline{font-size:9px;font-weight:bold;letter-spacing:1px;border-bottom:1px solid #9b8772;padding-bottom:5px;margin:5px 0}.wc-article-figure{margin:8px 0}.wc-article-figure img{width:100%;max-height:75mm;object-fit:cover}.wc-article-figure figcaption{font-size:10px;font-style:italic}
+  .wc-story-byline{font-size:9px;font-weight:bold;letter-spacing:1px;border-bottom:1px solid #9b8772;padding-bottom:5px;margin:5px 0}.wc-article-figure{margin:8px 0}.wc-article-figure img{max-width:100%;height:auto;max-height:75mm;object-fit:contain;display:block;margin:auto}.wc-article-figure figcaption{font-size:10px;font-style:italic}
+  .wc-story-copy img{max-width:100%;height:auto;object-fit:contain;break-inside:avoid}.wc-story-copy ul,.wc-story-copy ol{padding-left:20px}.wc-story-copy a{color:inherit;text-decoration:underline}
+  .wc-story-copy hr{display:block;border:0;border-top:1px solid currentColor;opacity:.65;margin:12px 0;break-inside:avoid}
   .wc-story-notice{border:1px solid currentColor;padding:10px}.wc-paper-footer{display:flex;justify-content:space-between;border-top:2px solid;margin-top:35px;padding-top:8px;font-size:10px;font-weight:bold}
   @media print{body{background:none}.tools{display:none}.wc-paper{margin:0;box-shadow:none;width:210mm;min-height:277mm;padding:12mm}@page{size:A4;margin:0}}`;
   const pages = wcAllPaperPages(issue);
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${wcEsc(issue.paperName)} — ${wcEsc(issue.title)}</title><style>${css}</style></head><body><div class="tools"><button onclick="window.print()">Print / Save as PDF</button></div>${pages}</body></html>`;
+  // Printed/downloaded HTML needs an absolute base for Foundry-relative artwork.
+  const base = typeof document !== "undefined" && document.baseURI ? `<base href="${wcAttr(new URL("./", document.baseURI).href)}">` : "";
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">${base}<meta name="viewport" content="width=device-width,initial-scale=1"><title>${wcEsc(issue.paperName)} — ${wcEsc(issue.title)}</title><style>${css}</style></head><body><div class="tools"><button onclick="window.print()">Print / Save as PDF</button></div>${pages}</body></html>`;
 }
 function wcFindStorage() {
   if (!game.user?.isGM) return null;

@@ -1,4 +1,4 @@
-# World Codex & Gazette v0.1.0
+# World Codex & Gazette v0.1.2
 
 A self-contained **Foundry VTT v11** module for **D&D 5e 3.3.1**, inspired by the two-column presentation of Divine Codex. This is a **new, independent module**; it does not overwrite or require Gods — Divine Codex.
 
@@ -33,9 +33,21 @@ In Foundry V11 → Add-on Modules → Install Module, paste:
 5. Use **Show Players** to open it for connected players, **Chat Notice** to place a clickable read-link in chat, **Print** to open a printable layout, or **HTML** to export the entire issue as a standalone HTML file. The printable HTML has a **Print / Save as PDF** button.
 6. The newspaper **archive** stores published editions for players, while unfinished issues remain GM-only.
 
-## Formatting
+## Rich text and images (v0.1.2)
 
-Article and lore text accepts plain text paragraphs (separated by blank lines), `**bold**`, `*italic*`, and `# Heading` / `## Heading` / `### Heading`. Image assets are linked from your Foundry filesystem or an external HTTP(S) URL, **not bundled in the backup**.
+- Open **Edit Entry** or **Edit Article**. The Summary, Lore, and Article Body fields now use an inline visual rich-text editor. Use **Insert Image** to browse Foundry's images or **Image URL** to paste an HTTPS URL or Foundry file path. You can place **multiple** images between paragraphs, in any order.
+- **Click an embedded image** and drag its orange lower-right handle to resize, or adjust the **10–100% Size** slider. Align selected illustrations left/center/right; remove them with the trash button. Changes persist when you save and are reflected in player previews and printable HTML.
+- Original single-picture controls remain: each Entry main artwork, Issue front cover and Article illustration now has an optional **Size (%)** input (10–100%).
+- The existing Markdown/paragraph text of older entries and editions remains readable; opening an old record in the editor converts it to formatted rich text on save. Stored HTML is sanitized to a small allowlist (no scripts, iframes, arbitrary CSS, unsafe image URLs).
+- All dropdowns including Category, Visibility, Paper Theme and Article Layout now use explicit contrasting dark popup colors with white text in Foundry V11.
+
+Image assets are linked from your Foundry filesystem or an external HTTP(S) URL, **not bundled in the backup**. Editors require GM access. Larger images and image-rich editions can increase world-setting payload size; prefer optimized WebP images. 
+
+## Dividers and grouped categories (v0.1.2)
+
+- In the Newspaper Article, Entry Summary or Lore editor, type `---` on its own line and press **Enter** to create a full-width horizontal rule. Alternatively use the **Divider** toolbar button at the cursor. Existing older plain-text Markdown records with `---` on a line display dividers automatically. Dividers survive save/reopen, backups, printing and player publication.
+- **All Categories** in Codex now groups visible records under headers for each GM-created category in the order the GM created them, with a count and a collapse/expand arrow. Records whose category has been deleted appear in **Uncategorized**. Searching preserves the group headers only where matches remain; selecting a single category still shows its entries directly.
+- Native dropdown menus are replaced with high-contrast dark custom popups with visible selected values, keyboard navigation (arrows, Home/End, Escape) and readable hover states in Foundry V11. This covers All Categories and the Entry/Issue/Article form dropdowns.
 
 ## Privacy and storage
 

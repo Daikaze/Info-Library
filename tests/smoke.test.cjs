@@ -44,6 +44,18 @@ async function run() {
   assert.equal(publicData.entries[0].name,'Izmet');
   assert.equal(publicData.categories[0].name,'Cities');
   assert.match(app._build(), /Izmet/);
+  // All Categories must retain each category header, even with multiple entries.
+  const grouped = app._codexSidebar(app.store);
+  assert.match(grouped, /wc-entry-group/);
+  assert.match(grouped, /wc-group-heading/);
+  assert.match(grouped, /Cities/);
+  assert.match(grouped, /data-wc-dropdown-trigger/);
+  const legacyMarkdown = vm.runInContext('wcMarkdown',context);
+  assert.equal(legacyMarkdown('Before\n---\nAfter'), '<p>Before</p><hr><p>After</p>');
+  assert.equal(legacyMarkdown('Before\n\n---\n\nAfter'), '<p>Before</p><hr><p>After</p>');
+  const richField = vm.runInContext('wcRichField',context);
+  assert.match(richField('body', 'text', 'Article'), /data-wc-insert-rule/);
+
   await action('new-entry'); app.draft.name='Hidden NPC'; await action('save-entry');
   assert.equal(publicData.entries.length,1,'private entries not published');
   await action('new-issue'); app.draft.paperName='Izmet Times'; app.draft.title='The Vanishing'; app.draft.date='06/06/602'; await action('save-issue');
@@ -64,6 +76,6 @@ async function run() {
   const page = vm.runInContext('wcPaperArticle',context)({headline:'<script>fail</script>',body:'**hello** <img src=x>'});
   assert.doesNotMatch(page,/<script>|<img src=x>/);
   assert.match(page,/&lt;script&gt;/);
-  console.log('PASS: 20+ smoke assertions — fresh state, CRUD, private/public separation, newspaper pages, article display, export, sanitization');
+  console.log('PASS: 25+ smoke assertions — fresh state, CRUD, private/public separation, newspaper pages, article display, export, sanitization');
 }
 run().catch(err => {console.error(err);process.exitCode=1});
