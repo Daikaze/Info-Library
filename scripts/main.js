@@ -61,6 +61,12 @@ const wcWidth = (value) => {
   return Number.isFinite(n) ? Math.max(10, Math.min(100, n)) : 100;
 };
 const wcAlign = (value) => ["left", "center", "right"].includes(value) ? value : "center";
+// Safe, bounded offsets for user-positioned pictures. These survive HTML sanitizing,
+// import/export, player display and print without accepting arbitrary inline CSS.
+const wcOffset = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(Math.min(1200, Math.max(-1200, n))) : 0;
+};
 function wcSanitizeRich(html) {
   // Never render raw imported HTML. Strip tags/attributes outside this allowlist,
   // including events, arbitrary styles, scripts, iframes and executable URLs.
@@ -78,7 +84,9 @@ function wcSanitizeRich(html) {
       if (!src) return "";
       const width = wcWidth(node.getAttribute("data-wc-width") || node.getAttribute("width") || node.style.width);
       const align = wcAlign(node.getAttribute("data-wc-align"));
-      return `<img src="${wcAttr(src)}" alt="${wcAttr(node.getAttribute("alt") || "Illustration")}" data-wc-width="${width}" data-wc-align="${align}" style="width:${width}%;max-width:100%;height:auto;display:block;margin-left:${align === "left" ? "0" : "auto"};margin-right:${align === "right" ? "0" : "auto"}">`;
+      const x = wcOffset(node.getAttribute("data-wc-offset-x"));
+      const y = wcOffset(node.getAttribute("data-wc-offset-y"));
+      return `<img src="${wcAttr(src)}" alt="${wcAttr(node.getAttribute("alt") || "Illustration")}" data-wc-width="${width}" data-wc-align="${align}" data-wc-offset-x="${x}" data-wc-offset-y="${y}" style="width:${width}%;max-width:100%;height:auto;display:block;margin-left:${align === "left" ? "0" : "auto"};margin-right:${align === "right" ? "0" : "auto"};transform:translate(${x}px,${y}px)">`;
     }
     const children = Array.from(node.childNodes).map(walk).join("");
     if (!allowed.has(tag)) return children;
@@ -122,9 +130,11 @@ function wcRichField(field, value, label) {
       <button type="button" data-wc-image-align="left" title="Align left">${wcIcon("align-left")}</button>
       <button type="button" data-wc-image-align="center" title="Center">${wcIcon("align-center")}</button>
       <button type="button" data-wc-image-align="right" title="Align right">${wcIcon("align-right")}</button>
+      <span class="wc-image-position" data-wc-image-position>Position 0, 0</span>
+      <button type="button" data-wc-image-reset title="Reset the picture position">${wcIcon("undo")} Reset position</button>
       <button type="button" data-wc-remove-image title="Remove image">${wcIcon("trash")}</button>
     </div>
-    <small class="wc-editor-hint">Type --- on a separate line and press Enter to insert a divider, or click Divider. Illustrations support individual resize and alignment.</small>
+    <small class="wc-editor-hint">Type --- on a separate line and press Enter to insert a divider, or click Divider. Click and drag an inserted image to position it freely, use the orange corner to resize, or Reset position to return it to the normal text flow. Saved positions appear in newspapers and profiles.</small>
   </div>`;
 }
 function wcPercentField(field, value, label) {
@@ -235,6 +245,7 @@ class WorldCodex extends Application {
     this.query = "";
     this.categoryFilter = "all";
     this.collapsedGroups = new Set();
+    this._dragEntryId = null;
     this.entryId = null;
     this.issueId = null;
     this.pageId = null;
@@ -272,8 +283,8 @@ class WorldCodex extends Application {
       `${e.name} ${e.subtitle} ${e.summary} ${(e.tags || []).join(" ")}`.toLowerCase().includes(this.query.toLowerCase()));
     const entryRow = e => {
       const c = categories.find(c => c.id === e.categoryId);
-      return `<button type="button" class="wc-entry-row ${e.id === this.entryId ? "wc-active" : ""}" data-wc-action="select-entry" data-id="${wcAttr(e.id)}">
-        ${wcFigure(e.image, e.name, "wc-thumb")}
+      return `<button type="button" class="wc-entry-row ${e.id === this.entryId ? "wc-active" : ""}" data-wc-action="select-entry" data-id="${wcAttr(e.id)}" ${this.isGM ? `draggable="true" data-wc-entry-drag="${wcAttr(e.id)}" title="Drag to move ${wcAttr(e.name)} to another category"` : ""}>
+        ${this.isGM ? `<span class="wc-grip" aria-hidden="true">${wcIcon("grip-vertical")}</span>` : ""}${wcFigure(e.image, e.name, "wc-thumb")}
         <span class="wc-row-meta"><strong>${wcEsc(e.name)}</strong><small>${wcEsc(e.subtitle)}</small><em>${wcEsc(c?.name || "Uncategorized")}</em></span>${this.isGM && e.visibility !== "players" ? wcIcon("lock") : wcIcon("chevron-right")}</button>`;
     };
     // In All Categories, preserve the DM's category ordering and group records
@@ -281,20 +292,21 @@ class WorldCodex extends Application {
     const groups = this.categoryFilter === "all"
       ? [...categories.map(c => ({id:c.id, name:c.name, color:wcColor(c.color), entries:filtered.filter(e => e.categoryId === c.id)})),
         {id:"", name:"Uncategorized", color:"#8995a7", entries:filtered.filter(e => !categories.some(c => c.id === e.categoryId))}]
-        .filter(g => g.entries.length)
+        .filter(g => g.entries.length || (this.isGM && g.id))
       : [];
     const items = this.categoryFilter === "all"
       ? groups.map(g => `<section class="wc-entry-group" style="--wc-group-accent:${g.color}">
-        <button type="button" class="wc-group-heading" data-wc-group-toggle="${wcAttr(g.id)}" aria-expanded="${!this.collapsedGroups?.has(g.id)}" title="Toggle ${wcAttr(g.name)}">
+        <button type="button" class="wc-group-heading" data-wc-group-toggle="${wcAttr(g.id)}" ${this.isGM ? `data-wc-drop-category="${wcAttr(g.id)}"` : ""} aria-expanded="${!this.collapsedGroups?.has(g.id)}" title="${this.isGM ? `Drop an entry here to move it into ${wcAttr(g.name)}; ` : ""}Toggle ${wcAttr(g.name)}">
           ${wcIcon(this.collapsedGroups?.has(g.id) ? "chevron-right" : "chevron-down")}
           <span>${wcEsc(g.name)}</span><b>${g.entries.length}</b></button>
-        <div class="wc-group-entries" ${this.collapsedGroups?.has(g.id) ? "hidden" : ""}>${g.entries.map(entryRow).join("")}</div>
+        <div class="wc-group-entries" ${this.collapsedGroups?.has(g.id) ? "hidden" : ""}>${g.entries.map(entryRow).join("")}${this.isGM && !g.entries.length ? `<div class="wc-group-drop-hint">Drop an entry here</div>` : ""}</div>
       </section>`).join("")
       : filtered.map(entryRow).join("");
     return `<div class="wc-sidebar-heading"><span class="wc-kicker">WORLD ENCYCLOPEDIA</span><div class="wc-sidebar-title"><h2>${wcIcon("book")} Codex</h2>${this.isGM ? wcBtn("new-entry", "", "plus", "wc-icon-button") : ""}</div></div>
       <label class="wc-search">${wcIcon("search")}<input data-wc-search type="search" placeholder="Search names, history, tags..." value="${wcAttr(this.query)}"></label>
       ${wcDropdown("category", this.categoryFilter, [["all", "All Categories"], ...categories.map(c => [c.id, c.name])], "category", "wc-category-dropdown")}
       <div class="wc-count"><span>ENTRIES</span><b>${filtered.length} / ${entries.length}</b></div>
+      ${this.isGM && this.categoryFilter === "all" && categories.length > 1 ? `<p class="wc-drag-hint">${wcIcon("arrows-alt")} Drag a record onto another category heading to move it.</p>` : ""}
       <div class="wc-list">${items || `<div class="wc-list-empty">${wcIcon("inbox")}<p>No matching entries</p></div>`}</div>
       <div class="wc-sidebar-footer">${this.isGM ? `${wcBtn("categories", "Categories", "layer-group")}${wcBtn("backup", "Backup", "download")}${wcBtn("import", "Import", "file-import")}` : "Published world lore"}</div>`;
   }
@@ -320,7 +332,7 @@ class WorldCodex extends Application {
   }
   _categoriesView(data) {
     return `<section class="wc-edit-wrap"><div class="wc-edit-top"><div><div class="wc-kicker">ORGANIZE YOUR WORLD</div><h1>Categories</h1><p>Create your own categories. No fixed types or presets.</p></div>${wcBtn("new-category", "New Category", "plus", "wc-primary")}</div>
-      <div class="wc-categories-grid">${data.categories.map(c => `<div class="wc-cat-card" style="--wc-cat:${wcColor(c.color)}"><div class="wc-cat-mark">${wcIcon("bookmark")}</div><h3>${wcEsc(c.name)}</h3><p>${wcEsc(c.description || "Custom category")}</p><small>${data.entries.filter(e => e.categoryId === c.id).length} entries</small><div>${wcBtn("edit-category", "Edit", "pen", "", `data-id="${wcAttr(c.id)}"`)}${wcBtn("delete-category", "Delete", "trash", "wc-danger", `data-id="${wcAttr(c.id)}"`)}</div></div>`).join("") || `<div class="wc-wide">${wcEmpty("layer-group", "No categories yet", "Create a category such as Cities, NPCs, PCs, or anything you like.", "new-category", "Create Category")}</div>`}</div>
+      <div class="wc-categories-grid">${data.categories.map(c => `<div class="wc-cat-card" data-wc-drop-category="${wcAttr(c.id)}" style="--wc-cat:${wcColor(c.color)}" title="Drop Codex entries here to change their category"><div class="wc-cat-mark">${wcIcon("bookmark")}</div><h3>${wcEsc(c.name)}</h3><p>${wcEsc(c.description || "Custom category")}</p><small>${data.entries.filter(e => e.categoryId === c.id).length} entries</small><div>${wcBtn("edit-category", "Edit", "pen", "", `data-id="${wcAttr(c.id)}"`)}${wcBtn("delete-category", "Delete", "trash", "wc-danger", `data-id="${wcAttr(c.id)}"`)}</div></div>`).join("") || `<div class="wc-wide">${wcEmpty("layer-group", "No categories yet", "Create a category such as Cities, NPCs, PCs, or anything you like.", "new-category", "Create Category")}</div>`}</div>
       <div class="wc-edit-bottom">${wcBtn("back", "Back to Codex", "arrow-left")}</div></section>`;
   }
   _categoryForm() {
@@ -494,6 +506,7 @@ class WorldCodex extends Application {
     const img = document.createElement("img");
     img.src = url; img.alt = "Illustration";
     img.dataset.wcWidth = "70"; img.dataset.wcAlign = "center";
+    img.dataset.wcOffsetX = "0"; img.dataset.wcOffsetY = "0";
     this._applyImageStyle(img);
     range.insertNode(img);
     range.setStartAfter(img); range.collapse(true);
@@ -510,6 +523,22 @@ class WorldCodex extends Application {
     img.style.maxWidth = "100%"; img.style.height = "auto"; img.style.display = "block";
     img.style.marginLeft = align === "left" ? "0" : "auto";
     img.style.marginRight = align === "right" ? "0" : "auto";
+    const x = wcOffset(img.dataset.wcOffsetX);
+    const y = wcOffset(img.dataset.wcOffsetY);
+    img.dataset.wcOffsetX = String(x);
+    img.dataset.wcOffsetY = String(y);
+    img.style.transform = `translate(${x}px, ${y}px)`;
+  }
+  _setImagePosition(img, x, y) {
+    if (!img?.isConnected) return;
+    img.dataset.wcOffsetX = String(wcOffset(x));
+    img.dataset.wcOffsetY = String(wcOffset(y));
+    this._applyImageStyle(img);
+    this._positionHandle();
+    const editor = img.closest("[data-wc-rich]");
+    const tools = this.element?.find?.(`[data-wc-image-tools="${editor?.dataset.wcRich}"]`);
+    tools?.find("[data-wc-image-position]").text(`Position ${img.dataset.wcOffsetX}, ${img.dataset.wcOffsetY}`);
+    this._syncRich(editor);
   }
   _chooseImage(img) {
     this.element?.find?.(".wc-rich-editable img.wc-image-selected")?.removeClass("wc-image-selected");
@@ -523,6 +552,7 @@ class WorldCodex extends Application {
     tools?.removeAttr("hidden");
     tools?.find("[data-wc-image-size]").val(wcWidth(img.dataset.wcWidth));
     tools?.find("output").text(`${wcWidth(img.dataset.wcWidth)}%`);
+    tools?.find("[data-wc-image-position]").text(`Position ${wcOffset(img.dataset.wcOffsetX)}, ${wcOffset(img.dataset.wcOffsetY)}`);
     this._positionHandle();
   }
   _positionHandle() {
@@ -551,6 +581,42 @@ class WorldCodex extends Application {
   activateListeners(html) {
     super.activateListeners(html);
     html.on("click", "[data-wc-action]", (ev) => { ev.preventDefault(); this._onAction(ev).catch(e => this._error(e)); });
+    // Dragging affects only GM-owned Codex records. The entry id is validated
+    // against private storage at drop time; no arbitrary browser payload is trusted.
+    html.on("dragstart", "[data-wc-entry-drag]", (ev) => {
+      if (!this.isGM) { ev.preventDefault(); return; }
+      const id = ev.currentTarget.dataset.wcEntryDrag;
+      if (!this.store.entries.some(e => e.id === id)) { ev.preventDefault(); return; }
+      this._dragEntryId = id;
+      const dt = ev.originalEvent?.dataTransfer || ev.dataTransfer;
+      if (dt) {
+        dt.effectAllowed = "move";
+        dt.setData("application/x-world-codex-entry", id);
+        dt.setData("text/plain", id);
+      }
+      ev.currentTarget.classList.add("wc-dragging");
+    });
+    html.on("dragover", "[data-wc-drop-category]", (ev) => {
+      if (!this.isGM || !this._dragEntryId) return;
+      ev.preventDefault();
+      const dt = ev.originalEvent?.dataTransfer || ev.dataTransfer;
+      if (dt) dt.dropEffect = "move";
+      html.find(".wc-drop-active").removeClass("wc-drop-active");
+      ev.currentTarget.classList.add("wc-drop-active");
+    });
+    html.on("drop", "[data-wc-drop-category]", (ev) => {
+      if (!this.isGM || !this._dragEntryId) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const id = this._dragEntryId;
+      const target = ev.currentTarget.dataset.wcDropCategory;
+      this._dragEntryId = null;
+      html.find(".wc-drop-active, .wc-dragging").removeClass("wc-drop-active wc-dragging");
+      this._moveEntryToCategory(id, target).catch(e => this._error(e));
+    });
+    html.on("dragend", "[data-wc-entry-drag]", () => {
+      this._dragEntryId = null;
+      html.find(".wc-drop-active, .wc-dragging").removeClass("wc-drop-active wc-dragging");
+    });
     html.on("input", "[data-wc-search]", (ev) => {
       this.query = ev.currentTarget.value;
       // Preserve focus and cursor by updating just the list / count instead of re-rendering the window.
@@ -665,6 +731,39 @@ class WorldCodex extends Application {
       const img = this._selectedImage; if (!img?.isConnected) return;
       const editor = img.closest("[data-wc-rich]"); img.remove(); this._chooseImage(null); this._syncRich(editor);
     });
+    html.on("click", "[data-wc-image-reset]", () => {
+      if (this._selectedImage?.isConnected) this._setImagePosition(this._selectedImage, 0, 0);
+    });
+    html.on("pointerdown", "[data-wc-rich] img", (ev) => {
+      if (!this.isGM || ev.button !== 0 || ev.originalEvent?.isPrimary === false) return;
+      const img = ev.currentTarget;
+      this._chooseImage(img);
+      ev.preventDefault(); ev.stopPropagation();
+      const originX = wcOffset(img.dataset.wcOffsetX);
+      const originY = wcOffset(img.dataset.wcOffsetY);
+      const startX = ev.originalEvent?.clientX ?? ev.clientX;
+      const startY = ev.originalEvent?.clientY ?? ev.clientY;
+      let moved = false;
+      const move = (event) => {
+        if (!img.isConnected) { end(); return; }
+        const dx = event.clientX - startX;
+        const dy = event.clientY - startY;
+        if (!moved && Math.hypot(dx, dy) < 4) return;
+        moved = true;
+        img.classList.add("wc-image-moving");
+        this._setImagePosition(img, originX + dx, originY + dy);
+      };
+      const end = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", end);
+        img.classList.remove("wc-image-moving");
+        if (img.isConnected) this._syncRich(img.closest("[data-wc-rich]"));
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end, {once:true});
+      window.addEventListener("pointercancel", end, {once:true});
+    });
     html.on("pointerdown", ".wc-image-resize-handle", (ev) => {
       if (!this._selectedImage?.isConnected) return;
       ev.preventDefault(); ev.stopPropagation();
@@ -678,6 +777,26 @@ class WorldCodex extends Application {
       window.addEventListener("pointerup", end, {once:true});
       window.addEventListener("pointercancel", end, {once:true});
     });
+  }
+  async _moveEntryToCategory(entryId, categoryId) {
+    this._checkGM();
+    if (!["browse", "categories"].includes(this.view)) {
+      ui.notifications.warn("Save or cancel your current edit before moving an entry.");
+      return false;
+    }
+    const data = this.store;
+    const entry = data.entries.find(e => e.id === entryId);
+    const target = data.categories.find(c => c.id === categoryId);
+    if (!entry || !target || entry.categoryId === target.id) return false;
+    entry.categoryId = target.id;
+    entry.updatedAt = new Date().toISOString();
+    if (!await this._persist(data)) return false;
+    this.collapsedGroups.delete(target.id);
+    // Keep a moved entry visible when dragging from a single-category filter.
+    if (this.categoryFilter !== "all") this.categoryFilter = target.id;
+    await this.render();
+    ui.notifications.info(`${entry.name} moved to ${target.name}.`);
+    return true;
   }
   _updateDraft(ev) {
     if (!this.draft) return;

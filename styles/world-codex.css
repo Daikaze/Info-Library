@@ -228,3 +228,18 @@
 }
 .world-codex-window .wc-story-copy hr {border:0!important;border-top:1px solid currentColor!important;margin:14px 0!important;opacity:.58;display:block;break-inside:avoid}
 .world-codex-window .wc-editor-toolbar [data-wc-insert-rule] {font-weight:750!important}
+
+/* v0.1.3 — GM entry drag/drop and freely movable rich-text illustrations */
+.world-codex-window [data-wc-entry-drag] { cursor:grab!important; }
+.world-codex-window [data-wc-entry-drag]:active { cursor:grabbing!important; }
+.world-codex-window .wc-grip {display:inline-flex;align-items:center;color:#b1bdcc;font-size:12px;flex:none;margin-left:1px;margin-right:1px}
+.world-codex-window .wc-dragging {opacity:.45!important}
+.world-codex-window [data-wc-drop-category] {transition:background-color .12s, box-shadow .12s, border-color .12s}
+.world-codex-window [data-wc-drop-category].wc-drop-active {background:#35503e!important;color:#fff!important;box-shadow:inset 0 0 0 2px #90e0aa!important;border-color:#90e0aa!important}
+.world-codex-window .wc-group-drop-hint {padding:8px 12px;margin:2px 0 6px;border:1px dashed #5d7184;border-radius:4px;color:#c6d3e0;font-size:11px;text-align:center;pointer-events:none}
+.world-codex-window .wc-drag-hint {font-size:11px;color:#c6cfda;line-height:1.4;padding:5px 10px;margin:0!important}
+.world-codex-window .wc-drag-hint i {margin-right:5px;color:#f2c584}
+.world-codex-window .wc-rich-editable img {cursor:grab!important;touch-action:none;user-select:none;-webkit-user-drag:none}
+.world-codex-window .wc-rich-editable img.wc-image-moving {cursor:grabbing!important;outline:1px dashed #efbd7b;box-shadow:0 0 0 2px #eec68c}
+.world-codex-window .wc-image-position {color:#f2dcb5;font-variant-numeric:tabular-nums;font-size:11px}
+.world-codex-window .wc-rich-editable {min-height:235px}

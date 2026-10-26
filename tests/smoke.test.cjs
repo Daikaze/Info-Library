@@ -55,6 +55,19 @@ async function run() {
   assert.equal(legacyMarkdown('Before\n\n---\n\nAfter'), '<p>Before</p><hr><p>After</p>');
   const richField = vm.runInContext('wcRichField',context);
   assert.match(richField('body', 'text', 'Article'), /data-wc-insert-rule/);
+  assert.match(richField('body', '', 'Article'), /data-wc-image-reset/, 'free image reset control exists');
+  assert.match(app._codexSidebar(app.store), /data-wc-entry-drag/, 'GM entries are draggable');
+  assert.match(app._codexSidebar(app.store), /data-wc-drop-category/, 'category heading is a drop zone');
+  // Category moves are persisted through the same storage and public mirror as edits.
+  await action('new-category'); app.draft.name='NPCs'; await action('save-category');
+  const secondId = app.store.categories.find(c => c.name === 'NPCs').id;
+  const entryId = app.store.entries[0].id;
+  app.view = 'browse';
+  assert.equal(await app._moveEntryToCategory(entryId, secondId), true);
+  assert.equal(app.store.entries[0].categoryId, secondId);
+  assert.equal(publicData.entries[0].categoryId, secondId);
+  assert.equal(await app._moveEntryToCategory(entryId, secondId), false, 'no-op on same category');
+
 
   await action('new-entry'); app.draft.name='Hidden NPC'; await action('save-entry');
   assert.equal(publicData.entries.length,1,'private entries not published');
@@ -69,7 +82,7 @@ async function run() {
   assert.equal(journals[0].getFlag('world-codex','storage'),true);
   assert.equal(journals[0].getFlag('world-codex','database').entries.length,2);
   await action('toggle-publish'); assert.equal(publicData.issues.length,0);
-  await action('categories'); await action('delete-category',app.store.categories[0].id);
+  await action('categories'); await action('delete-category',app.store.categories.find(c => c.name === 'NPCs').id);
   assert.equal(app.store.entries[0].categoryId,'','deleting category retains entries');
   const unsafe = vm.runInContext('wcImage',context);
   assert.equal(unsafe('javascript:alert(1)'), '');

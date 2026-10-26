@@ -1,4 +1,4 @@
-# World Codex & Gazette v0.1.2
+# World Codex & Gazette v0.1.3
 
 A self-contained **Foundry VTT v11** module for **D&D 5e 3.3.1**, inspired by the two-column presentation of Divine Codex. This is a **new, independent module**; it does not overwrite or require Gods — Divine Codex.
 
@@ -33,7 +33,7 @@ In Foundry V11 → Add-on Modules → Install Module, paste:
 5. Use **Show Players** to open it for connected players, **Chat Notice** to place a clickable read-link in chat, **Print** to open a printable layout, or **HTML** to export the entire issue as a standalone HTML file. The printable HTML has a **Print / Save as PDF** button.
 6. The newspaper **archive** stores published editions for players, while unfinished issues remain GM-only.
 
-## Rich text and images (v0.1.2)
+## Rich text and images (v0.1.3)
 
 - Open **Edit Entry** or **Edit Article**. The Summary, Lore, and Article Body fields now use an inline visual rich-text editor. Use **Insert Image** to browse Foundry's images or **Image URL** to paste an HTTPS URL or Foundry file path. You can place **multiple** images between paragraphs, in any order.
 - **Click an embedded image** and drag its orange lower-right handle to resize, or adjust the **10–100% Size** slider. Align selected illustrations left/center/right; remove them with the trash button. Changes persist when you save and are reflected in player previews and printable HTML.
@@ -43,7 +43,7 @@ In Foundry V11 → Add-on Modules → Install Module, paste:
 
 Image assets are linked from your Foundry filesystem or an external HTTP(S) URL, **not bundled in the backup**. Editors require GM access. Larger images and image-rich editions can increase world-setting payload size; prefer optimized WebP images. 
 
-## Dividers and grouped categories (v0.1.2)
+## Dividers and grouped categories (v0.1.3)
 
 - In the Newspaper Article, Entry Summary or Lore editor, type `---` on its own line and press **Enter** to create a full-width horizontal rule. Alternatively use the **Divider** toolbar button at the cursor. Existing older plain-text Markdown records with `---` on a line display dividers automatically. Dividers survive save/reopen, backups, printing and player publication.
 - **All Categories** in Codex now groups visible records under headers for each GM-created category in the order the GM created them, with a count and a collapse/expand arrow. Records whose category has been deleted appear in **Uncategorized**. Searching preserves the group headers only where matches remain; selecting a single category still shows its entries directly.
@@ -69,3 +69,11 @@ Image assets are linked from your Foundry filesystem or an external HTTP(S) URL,
 - Chat notifications and live "Show Players" need connected clients. Published content remains available after they reconnect.
 - No generated sample categories or sample content is shipped; content starts empty by design.
 - All interface labels are in English. You can write content in Bulgarian or any other language supported by your browser fonts.
+
+## Drag records and move illustrations (v0.1.3)
+
+- **GM-only drag & drop:** in **Codex → All Categories**, grab any entry in the left sidebar and drop it onto another category heading. Empty categories remain visible as targets. The destination is saved in the private Journal and replicated to players for published entries. You can also drop onto category cards in **Categories**, if navigating there with an active drag.
+- Category groups expand automatically after a move. Only an existing GM-created category can be used as a destination; drops on the current category are ignored. Dragging is disabled for players.
+- **Freely position inserted pictures:** while editing a Codex summary, lore or newspaper article, click and hold an inserted image, drag it horizontally or vertically to adjust its location, and release. The 2D offset is saved alongside its size and alignment, survives save, reopen, JSON backup/import, printing and published views. Use **Reset position** to put it back at its normal place in the text.
+- Free positioning is a *visual offset* from the image's location in the text, so it can overlap nearby words if moved too far. Use smaller image size or create a new paragraph to leave enough space.
+- Save the record/article as usual. When using browser/Foundry zoom or a different window width, pixel offsets may look slightly different.
