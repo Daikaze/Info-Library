@@ -48,3 +48,13 @@
 - [ ] Use **Use Classic Layout** to restore original articles; then reopen designer and verify canvas blocks were retained.
 - [ ] Check existing newspaper issues, JSON backups, old article editing, legacy Codex rich-text editor and drag-drop categories.
 - [ ] Inspect particularly long text blocks in the player view and A4 print; increase their height if content overflows.
+
+## v0.1.5 manual checks (Foundry V11)
+- [ ] Open Design Page on a monitor of approximately 1366x768 and 1920x1080; check full-width sheet and editor scrolling.
+- [ ] Type a long paragraph in the right text editor; preview updates without losing caret.
+- [ ] Drag/resize text and images, save and re-open, then print.
+- [ ] Convert an old article with an image, confirm photo doesn't cover story text; switch to Classic to confirm original still intact.
+- [ ] Set Permissions to Selected Players and publish. Selected Player can see edition; other player cannot see or inspect its document content.
+- [ ] GM offline: permitted player can reopen restricted edition.
+- [ ] Unpublish and remove a reader; their JournalEntry access is revoked.
+- [ ] Default All Players issues and Codex public entries continue to work.

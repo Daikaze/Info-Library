@@ -1,6 +1,19 @@
-# World Codex & Gazette v0.1.4
+# World Codex & Gazette v0.1.5
 
 A self-contained **Foundry VTT v11** module for **D&D 5e 3.3.1**, inspired by the two-column presentation of Divine Codex. This is a **new, independent module**; it does not overwrite or require Gods — Divine Codex.
+
+
+## v0.1.5 — Readable Page Designer and Newspaper Permissions
+
+- **Design Page** now uses the full content width with an 800-pixel newspaper page rather than squeezing the preview between the usual sidebars.
+- Click a text block; edit the text in the **large editor in the right-hand panel**. Your changes immediately appear on the page. The block itself is selected and moved independently using its blue top handle; resize from the orange corner.
+- The first canvas conversion of a classic issue no longer places an illustration directly on top of the imported article text. Classic articles remain stored unchanged, and **Use Classic Layout** is still available.
+- Every newspaper issue has its own **Permissions** action next to Edit Issue. Select **All Players** (default) or **Selected Players Only**, then check the intended user accounts. Publishing still requires a GM action.
+- Restricted published editions are **never written into the world-wide `publicData` setting**. Instead, each restricted edition is mirrored into a Foundry JournalEntry with default `NONE` ownership and individual selected players at `OBSERVER`, so it remains readable only by those players, even when the GM is offline.
+- **Chat Notice** uses a private whisper for restricted editions. Switching back to All Players, unpublishing, or deleting an edition revokes the restricted JournalEntry copy.
+- Only the GM can edit issues. Old JSON backups remain supported and default to All Players when an audience is not supplied.
+
+**Important:** Backup before updating. Restricted newspapers use additional JournalEntries and will appear in Foundry's Journals directory for permitted readers; don't manually delete these module-managed copies.
 
 ## Installation via manifest
 

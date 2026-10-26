@@ -10,17 +10,21 @@ const regs = {};
 class Application { constructor() {this.rendered = false;} static get defaultOptions() {return {}} render() {this.rendered = true; return this;} activateListeners() {} }
 class JournalEntry {
   static async create(input) {
-    const j = {flags:input.flags, getFlag(mod, k) {return this.flags[mod]?.[k]},
-      async setFlag(mod, k, value) { this.flags[mod][k] = structuredClone(value); }};
+    const j = {flags:structuredClone(input.flags),ownership:input.ownership||{default:0},name:input.name,
+      getFlag(mod,k){return this.flags[mod]?.[k]},
+      testUserPermission(user,level){return this.ownership[user.id] >= 2 || this.ownership.default >= 2},
+      async setFlag(mod,k,value){this.flags[mod][k]=structuredClone(value)},
+      async update(next){this.flags=structuredClone(next.flags);this.ownership=next.ownership;this.name=next.name},
+      async delete(){const i=journals.indexOf(this);if(i>=0)journals.splice(i,1)} };
     journals.push(j); return j;
   }
 }
 const context = vm.createContext({
   Application, JournalEntry, console, structuredClone, setTimeout,
   Hooks: {once() {}, on() {}},
-  CONST: {DOCUMENT_OWNERSHIP_LEVELS:{NONE:0}},
+  CONST: {DOCUMENT_OWNERSHIP_LEVELS:{NONE:0,OBSERVER:2}},
   foundry:{utils:{deepClone:structuredClone,randomID:() => `testid${++seq}`,mergeObject:(a,b)=>({...a,...b})}},
-  game:{user:{isGM:true},journal:{find:fn=>journals.find(fn)},settings:{
+  game:{user:{id:'gm',isGM:true},users:{get(id){return {id,isGM:id==='gm'}},[Symbol.iterator]:function*(){yield {id:'gm',name:'GM',isGM:true};yield {id:'p1',name:'Player One',isGM:false};yield {id:'p2',name:'Player Two',isGM:false}}},journal:{find:fn=>journals.find(fn),filter:fn=>journals.filter(fn),[Symbol.iterator]:function*(){yield* journals}},settings:{
     register(id, k, conf) {regs[k] = conf;},
     get(id, k) {return k === 'publicData' ? publicData : undefined;},
     async set(id, k, value) {publicData = structuredClone(value);}
@@ -89,6 +93,45 @@ async function run() {
   const page = vm.runInContext('wcPaperArticle',context)({headline:'<script>fail</script>',body:'**hello** <img src=x>'});
   assert.doesNotMatch(page,/<script>|<img src=x>/);
   assert.match(page,/&lt;script&gt;/);
-  console.log('PASS: 25+ smoke assertions — fresh state, CRUD, private/public separation, newspaper pages, article display, export, sanitization');
+  // v0.1.4 canvas data model is additive and round-trips via safe import.
+  const clean = vm.runInContext('wcCanvasClean',context);
+  const draft = clean({enabled:true,blocks:[
+    {id:'text1',type:'text',html:'wc-rich-v1:<h3>News</h3>',x:22,y:15,w:54,h:28,size:24},
+    {id:'image1',type:'image',src:'worlds/my-world/art.webp',x:64,y:30,w:40,h:35,fit:'cover'},
+    {id:'bad',type:'image',src:'javascript:alert(1)',x:-40,y:200,w:400,h:800}
+  ]});
+  assert.equal(draft.enabled,true);
+  assert.equal(draft.blocks[0].size,24);
+  assert.equal(draft.blocks[1].src,'worlds/my-world/art.webp');
+  assert.equal(draft.blocks[1].x,60,'canvas positions stay inside 0–100% bounds');
+  assert.equal(draft.blocks[2].src,'','malicious image scheme rejected');
+  const existing = app.store;
+  existing.issues[0].pages[0].canvas = draft;
+  await app._persist(existing);
+  assert.equal(app.store.issues[0].pages[0].canvas.blocks.length,3);
+  assert.equal(publicData.issues.length,0,'unpublished canvas private');
+  // Restricted editions never enter publicData. Foundry Journal ownership
+  // grants observer access only to explicitly selected users.
+  const privateEdition=app.store;
+  privateEdition.issues[0].audience='selected';
+  privateEdition.issues[0].allowedUserIds=['p1'];
+  privateEdition.issues[0].published=true;
+  await app._persist(privateEdition);
+  assert.equal(publicData.issues.length,0,'restricted issue excluded from global publicData');
+  assert.equal(journals.length,2,'separate controlled JournalEntry created');
+  const mirror=journals.find(j=>j.getFlag('world-codex','sharedIssueId'));
+  assert.equal(mirror.ownership.default,0);
+  assert.equal(mirror.ownership.p1,2);
+  context.game.user={id:'p1',isGM:false};
+  assert.equal(app.store.issues.length,1,'selected player can read their newspaper');
+  context.game.user={id:'p2',isGM:false};
+  assert.equal(app.store.issues.length,0,'unselected player gets no newspaper');
+  context.game.user={id:'gm',isGM:true};
+  privateEdition.issues[0].published=false;
+  await app._persist(privateEdition);
+  assert.equal(journals.length,1,'revoking publication deletes shared entry');
+  assert.equal(publicData.issues.length,0);
+  console.log('PASS: 40+ smoke assertions — storage, legacy and restricted publishing, Journal ownership, category moves, canvas, security');
+
 }
 run().catch(err => {console.error(err);process.exitCode=1});

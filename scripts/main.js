@@ -20,6 +20,19 @@ const wcIcon = (name = "book") => `<i class="fas fa-${wcEsc(name)}" aria-hidden=
 const wcAttr = (x) => wcEsc(x);
 const wcBtn = (action, label, icon = "", extra = "", data = "") => `<button type="button" class="wc-btn ${extra}" data-wc-action="${wcEsc(action)}" ${data}>${icon ? wcIcon(icon) : ""}<span>${wcEsc(label)}</span></button>`;
 const wcDate = () => new Date().toISOString().slice(0, 10);
+// Selected-reader issues live in Foundry JournalEntries with OBSERVER ownership,
+// never in the world-wide publicData setting (which every player receives).
+const WC_SHARED_ISSUE = "sharedIssueId";
+const WC_SHARED_COPY = "sharedIssueData";
+const wcReaders = (raw) => Array.isArray(raw) ? [...new Set(raw.filter(id => typeof id === "string" && id.length <= 128))].slice(0, 100) : [];
+const wcAudience = (issue) => issue?.audience === "selected" ? "selected" : "all";
+const wcPublishedToEveryone = issue => !!issue?.published && wcAudience(issue) === "all";
+function wcVisibleJournalIssues() {
+  return Array.from(game.journal || []).filter(j => j.getFlag?.(WC_ID, WC_SHARED_ISSUE) &&
+    (game.user.isGM || j.testUserPermission?.(game.user, "OBSERVER")))
+    .map(j => j.getFlag(WC_ID, WC_SHARED_COPY)).filter(i => i?.published && wcAudience(i) === "selected" &&
+      wcReaders(i.allowedUserIds).includes(game.user.id));
+}
 const wcDateDisplay = (x) => {
   if (!x) return "Undated";
   // A date is author-provided, so retain fantasy calendar strings without reinterpretation.
@@ -203,33 +216,35 @@ function wcCanvasBlockHTML(block, editable = false, selected = false) {
     <span class="wc-canvas-size-handle" title="Drag to resize" data-wc-canvas-resize></span>` : "";
   const body = b.type === "image" ? (b.src ? `<img src="${wcAttr(b.src)}" alt="Newspaper picture" draggable="false" style="object-fit:${b.fit}">` : '<span class="wc-canvas-missing">Choose an image</span>')
     : b.type === "rule" ? `<hr>`
-    : `<div class="wc-canvas-text" style="font-size:${b.size}px;text-align:${b.align}" ${editable ? 'contenteditable="true" spellcheck="true" data-wc-canvas-text="true"' : ""}>${wcContent(b.html)}</div>`;
+    : `<div class="wc-canvas-text" style="font-size:${b.size}px;text-align:${b.align}" ${editable ? 'tabindex="0" title="Select to edit text in the large editor on the right"' : ""}>${wcContent(b.html)}</div>`;
   return `<div class="wc-canvas-block wc-canvas-${b.type} ${selected ? "wc-canvas-selected" : ""}" data-wc-canvas-block="${wcAttr(b.id)}" style="${coordinates}">${controls}<div class="wc-canvas-block-body">${body}</div></div>`;
 }
 function wcPaperCanvas(canvas, editable = false, selectedId = null) {
   return `<div class="wc-paper-canvas ${editable ? "wc-canvas-editing" : ""}" data-wc-canvas="true">${(canvas?.blocks || []).map(b => wcCanvasBlockHTML(b, editable, b.id === selectedId)).join("")}</div>`;
 }
 function wcInitialPageCanvas(page, issue, isCover) {
-  // Copy, never move/delete, existing articles. The user may return to classic
-  // layout at any time without losing the original stories.
+  // Conversion is nondestructive and avoids placing images over story text.
+  // Existing article data remains available under Use Classic Layout.
   const blocks = [];
-  if (isCover && wcImage(issue?.coverImage)) blocks.push(wcCanvasCleanBlock({
-    id:wcId(),type:"image",src:issue.coverImage,x:10,y:3,w:80,h:25,z:1
+  const coverPhoto = isCover && wcImage(issue?.coverImage);
+  if (coverPhoto) blocks.push(wcCanvasCleanBlock({
+    id:wcId(),type:"image",src:issue.coverImage,x:10,y:3,w:80,h:24,z:1
   }));
-  (page.articles || []).forEach((a, index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const y = Math.min(92, (blocks[0]?.type === "image" && isCover ? 30 : 3) + row * 30);
-    const h = Math.max(8, Math.min(28, 100 - y));
-    const heading = `<h3>${wcEsc(a.headline || "Untitled Article")}</h3>`;
-    const meta = `${a.kicker ? `<h5>${wcEsc(a.kicker)}</h5>` : ""}${a.byline ? `<p><em>${wcEsc(a.byline)}</em></p>` : ""}`;
-    blocks.push(wcCanvasCleanBlock({id:wcId(),type:"text",x:3+col*49,y,w:46,h,html:WC_RICH_PREFIX+heading+meta+wcContent(a.body),size:14}));
-    if (wcImage(a.image)) {
-      const imageY = Math.min(93, y + 17);
-      blocks.push(wcCanvasCleanBlock({id:wcId(),type:"image",x:4+col*49,y:imageY,w:18,h:Math.min(11,100-imageY),src:a.image,z:2}));
-    }
+  const articles = page.articles || [];
+  const top = coverPhoto ? 32 : 5;
+  const available = Math.max(16, 94-top);
+  const slot = Math.min(34, available / Math.max(1, articles.length));
+  articles.forEach((a,index) => {
+    const y=Math.min(94, top + index*slot);
+    const h=Math.max(4,Math.min(slot-3,94-y));
+    const picture=wcImage(a.image);
+    const heading=`<h3>${wcEsc(a.headline || "Untitled Article")}</h3>`;
+    const meta=`${a.kicker ? `<h5>${wcEsc(a.kicker)}</h5>` : ""}${a.byline ? `<p><em>${wcEsc(a.byline)}</em></p>` : ""}`;
+    blocks.push(wcCanvasCleanBlock({id:wcId(),type:"text",x:4,y,w:picture ? 52 : 92,h,
+      html:WC_RICH_PREFIX+heading+meta+wcContent(a.body),size:14}));
+    if (picture) blocks.push(wcCanvasCleanBlock({id:wcId(),type:"image",x:60,y,w:36,h,src:picture,z:2}));
   });
-  return {enabled:true, blocks};
+  return {enabled:true,blocks};
 }
 function wcPaperArticle(article = {}) {
   const style = ["lead", "standard", "notice"].includes(article.layout) ? article.layout : "standard";
@@ -284,6 +299,7 @@ function wcSafeImport(raw) {
     date: String(issue.date || ""), edition: String(issue.edition || ""), price: String(issue.price || ""),
     kicker: String(issue.kicker || ""), theme: ["parchment", "ivory", "noir"].includes(issue.theme) ? issue.theme : "parchment",
     coverImage: wcImage(issue.coverImage), coverWidth: wcWidth(issue.coverWidth), published: !!issue.published,
+    audience: wcAudience(issue), allowedUserIds: wcReaders(issue.allowedUserIds),
     pages: (Array.isArray(issue.pages) ? issue.pages : []).slice(0, 100).map(page => ({
       id: String(page.id || wcId()), title: String(page.title || ""), canvas: wcCanvasClean(page.canvas),
       articles: (Array.isArray(page.articles) ? page.articles : []).slice(0, 100).map(a => ({
@@ -325,7 +341,12 @@ class WorldCodex extends Application {
   }
   get isGM() { return !!game.user?.isGM; }
   get store() {
-    if (!this.isGM) return wcClone(game.settings.get(WC_ID, "publicData") || WC_DEFAULT());
+    if (!this.isGM) {
+      const publicCopy = wcClone(game.settings.get(WC_ID, "publicData") || WC_DEFAULT());
+      const restricted = wcVisibleJournalIssues();
+      publicCopy.issues = [...(publicCopy.issues || []), ...restricted.filter(i => !publicCopy.issues.some(j => j.id === i.id))];
+      return publicCopy;
+    }
     const journal = wcFindStorage();
     return wcClone(journal?.getFlag(WC_ID, WC_STORAGE_FLAG) || WC_DEFAULT());
   }
@@ -337,7 +358,8 @@ class WorldCodex extends Application {
       <div class="wc-top-links">${wcBtn("tab-codex", "Codex", "book", this.tab === "codex" ? "wc-selected" : "")}${wcBtn("tab-gazette", "Newspapers", "newspaper", this.tab === "gazette" ? "wc-selected" : "")}</div>
       <div class="wc-spacer"></div><span class="wc-role">${wcIcon(this.isGM ? "lock" : "eye")}${this.isGM ? "GM EDITOR" : "READER"}</span>
     </header>`;
-    return `${rootHeader}<div class="wc-body"><aside class="wc-sidebar">${this.tab === "codex" ? this._codexSidebar(data) : this._gazetteSidebar(data)}</aside><main class="wc-content">${this.tab === "codex" ? this._codexMain(data) : this._gazetteMain(data)}</main></div>`;
+    const isDesign = this.tab === "gazette" && this.view === "page-designer" && this.isGM;
+    return `${rootHeader}<div class="wc-body ${isDesign ? "wc-body-design" : ""}">${!isDesign ? `<aside class="wc-sidebar">${this.tab === "codex" ? this._codexSidebar(data) : this._gazetteSidebar(data)}</aside>` : ""}<main class="wc-content">${this.tab === "codex" ? this._codexMain(data) : this._gazetteMain(data)}</main></div>`;
   }
   _codexSidebar(data) {
     const categories = data.categories || [];
@@ -439,7 +461,7 @@ class WorldCodex extends Application {
     const pageIndex = Math.max(0, issue.pages.findIndex(p => p.id === this.pageId));
     const page = issue.pages[pageIndex];
     return `<section class="wc-gazette-reading"><div class="wc-issue-controls"><div><div class="wc-kicker">${wcEsc(issue.edition || "NEWSPAPER EDITION")}</div><h2>${wcEsc(issue.title)}</h2><small>${wcEsc(issue.date || "No date")} · ${issue.pages.length} page${issue.pages.length === 1 ? "" : "s"} · ${issue.published ? "Published" : "Draft"}</small></div>
-       <div class="wc-toolbar">${this.isGM ? `${wcBtn("edit-issue", "Edit Issue", "pen")}${wcBtn("toggle-publish", issue.published ? "Unpublish" : "Publish", issue.published ? "eye-slash" : "check-circle", issue.published ? "" : "wc-primary")}${issue.published ? wcBtn("share-issue", "Show Players", "users") : ""}${wcBtn("announce-issue", "Chat Notice", "comment", "", issue.published ? "" : "disabled")}${wcBtn("delete-issue", "", "trash", "wc-danger")}` : ""}${wcBtn("print-issue", "Print", "print")}${wcBtn("export-html", "HTML", "file-code")}</div>
+       <div class="wc-toolbar">${this.isGM ? `${wcBtn("edit-issue", "Edit Issue", "pen")}${wcBtn("issue-permissions", "Permissions", "user-shield")}${wcBtn("toggle-publish", issue.published ? "Unpublish" : "Publish", issue.published ? "eye-slash" : "check-circle", issue.published ? "" : "wc-primary")}${issue.published ? wcBtn("share-issue", "Show Players", "users") : ""}${wcBtn("announce-issue", "Chat Notice", "comment", "", issue.published ? "" : "disabled")}${wcBtn("delete-issue", "", "trash", "wc-danger")}` : ""}${wcBtn("print-issue", "Print", "print")}${wcBtn("export-html", "HTML", "file-code")}</div>
      </div>
      <div class="wc-page-switcher"><span>PAGES</span>${issue.pages.map((p, i) => `<button type="button" class="wc-page-tab ${i === pageIndex ? "wc-selected" : ""}" data-wc-action="select-page" data-id="${wcAttr(p.id)}">${i + 1}. ${wcEsc(p.title || `Page ${i + 1}`)}</button>`).join("")}${this.isGM ? wcBtn("add-page", "", "plus", "wc-icon-button") : ""}</div>
      ${this.isGM ? `<div class="wc-page-actions">${wcBtn("design-page", "Design Page", "object-group", "wc-primary")}${wcBtn("rename-page", "Page Settings", "pen")}${wcBtn("add-article", "Add Article", "plus")}${pageIndex > 0 ? wcBtn("page-left", "Move Left", "arrow-left") : ""}${pageIndex < issue.pages.length - 1 ? wcBtn("page-right", "Move Right", "arrow-right") : ""}${issue.pages.length > 1 ? wcBtn("delete-page", "Delete Page", "trash", "wc-danger") : ""}</div>` : ""}
@@ -463,22 +485,25 @@ class WorldCodex extends Application {
       ${items}<footer class="wc-paper-footer"><span>${wcEsc(issue.paperName)}</span><span>${wcEsc(issue.edition || "")}</span><span>PAGE ${index+1} / ${issue.pages.length}</span></footer>
     </div>`;
     return `<section class="wc-designer">
-      <div class="wc-designer-header"><div><div class="wc-kicker">LIVE PAGE DESIGNER</div><h2>${wcEsc(page.title || `Page ${index+1}`)}</h2><p>Move blocks using their top handle. Drag the lower-right corner to resize. Click inside text to write directly on the page.</p></div>
+      <div class="wc-designer-header"><div><div class="wc-kicker">LIVE PAGE DESIGNER</div><h2>${wcEsc(page.title || `Page ${index+1}`)}</h2><p>Click a text block to write comfortably in the large editor on the right. Drag the blue handle to move an element and the orange corner to resize it.</p></div>
       <div class="wc-toolbar">${wcBtn("save-canvas", "Save Page", "save", "wc-primary")}${wcBtn("cancel-canvas", "Cancel", "times")}</div></div>
       <div class="wc-designer-toolbar">${wcBtn("canvas-add-heading", "Heading", "heading")}${wcBtn("canvas-add-text", "Text", "font")}${wcBtn("canvas-add-image", "Image", "image")}${wcBtn("canvas-add-url", "Image URL", "link")}${wcBtn("canvas-add-rule", "Divider", "minus")}</div>
-      <div class="wc-designer-workspace"><div class="wc-designer-stage">${pageMarkup}</div>
+      <div class="wc-designer-workspace"><div class="wc-designer-stage"><div class="wc-designer-stage-caption">${wcIcon("expand")} Full-size page preview · Select a block to edit</div>${pageMarkup}</div>
        <aside class="wc-designer-inspector"><h3>Selected element</h3>
        ${current ? `<strong>${current.type === "image" ? "Image" : current.type === "rule" ? "Divider" : "Text Block"}</strong>
        <div class="wc-inspector-grid"><label>X (%)<input type="number" min="0" max="100" step="0.5" data-wc-canvas-coordinate="x" value="${current.x}"></label>
        <label>Y (%)<input type="number" min="0" max="100" step="0.5" data-wc-canvas-coordinate="y" value="${current.y}"></label>
        <label>Width (%)<input type="number" min="8" max="100" step="0.5" data-wc-canvas-coordinate="w" value="${current.w}"></label>
        <label>Height (%)<input type="number" min="3" max="100" step="0.5" data-wc-canvas-coordinate="h" value="${current.h}"></label></div>
-       ${current.type === "text" ? `<label class="wc-inspector-full">Text size <input data-wc-canvas-prop="size" type="number" min="9" max="52" value="${current.size}"></label>
+       ${current.type === "text" ? `<div class="wc-compose-wrap"><label for="wc-page-compose">WRITE YOUR TEXT HERE</label>
+       <div id="wc-page-compose" class="wc-page-compose" data-wc-canvas-compose contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true">${wcEditContent(current.html)}</div>
+       <p class="wc-compose-hint">The text updates on the page while you type. The block can still be moved and resized separately.</p></div>
+       <label class="wc-inspector-full">Text size <input data-wc-canvas-prop="size" type="number" min="9" max="52" value="${current.size}"></label>
        <label class="wc-inspector-full">Align <select data-wc-canvas-prop="align"><option value="left" ${current.align === "left" ? "selected" : ""}>Left</option><option value="center" ${current.align === "center" ? "selected" : ""}>Center</option><option value="right" ${current.align === "right" ? "selected" : ""}>Right</option></select></label>
-       <div class="wc-designer-format"><button type="button" data-wc-canvas-format="bold" title="Bold"><b>B</b></button><button type="button" data-wc-canvas-format="italic" title="Italic"><em>I</em></button><button type="button" data-wc-canvas-format="formatBlock" data-value="h3" title="Heading">H</button><button type="button" data-wc-canvas-format="insertUnorderedList" title="Bullets">${wcIcon("list-ul")}</button></div>` : ""}
+       <div class="wc-designer-format"><button type="button" data-wc-canvas-format="bold" title="Bold"><b>B</b></button><button type="button" data-wc-canvas-format="italic" title="Italic"><em>I</em></button><button type="button" data-wc-canvas-format="formatBlock" data-value="h3" title="Heading">H</button><button type="button" data-wc-canvas-format="insertUnorderedList" title="Bullets">${wcIcon("list-ul")}</button><button type="button" data-wc-canvas-format="insertHorizontalRule" title="Divider">${wcIcon("minus")}</button></div>` : ""}
        ${current.type === "image" ? `<label class="wc-inspector-full">Fit <select data-wc-canvas-prop="fit"><option value="contain" ${current.fit === "contain" ? "selected" : ""}>Contain (whole image)</option><option value="cover" ${current.fit === "cover" ? "selected" : ""}>Cover (crop)</option></select></label>${wcBtn("canvas-replace-image", "Replace Picture", "image")}` : ""}
        <div class="wc-inspector-actions">${wcBtn("canvas-bring-front", "To Front", "layer-group")}${wcBtn("canvas-send-back", "To Back", "clone")}${wcBtn("canvas-duplicate", "Duplicate", "copy")}${wcBtn("canvas-delete", "Delete", "trash", "wc-danger")}</div>`
-       : `<p class="wc-muted">Click a block on the page or add a new element.</p>`}
+       : `<p class="wc-muted">Click a block on the page to edit it here. Text editing is kept separate from dragging so you can write normally.</p>`}
        <hr><h3>Layout mode</h3><p class="wc-muted">The canvas replaces the classic article grid when you save. Your original articles remain stored.</p>
        ${wcBtn("canvas-classic", "Use Classic Layout", "columns", "", canvas.enabled ? "" : "disabled")}
        </aside></div><p class="wc-designer-footnote">The design is saved to this page only. The player view, PDF print, and HTML export use the same positions.</p>
@@ -494,6 +519,13 @@ class WorldCodex extends Application {
      ${wcSelect("theme", d.theme, "Paper Theme", [["parchment", "Aged Parchment"], ["ivory", "Classic Ivory"], ["noir", "Midnight Press"]])}
      <div class="wc-media-field">${wcTextField("coverImage", d.coverImage, "Front Cover Image (optional)", "worlds/my-world/art/map.webp")}${wcBtn("pick-image", "Browse", "image", "", 'data-field="coverImage"')}</div>
      ${wcPercentField("coverWidth", d.coverWidth, "Cover Image Size (%)")}</div>
+     <div class="wc-newspaper-permissions"><h3>${wcIcon("user-shield")} Newspaper Permissions</h3>
+       <p>Only published editions can be read by players. Restrict this edition to specific Foundry users, or share with everyone.</p>
+       ${wcSelect("audience", wcAudience(d), "Who can read this newspaper?", [["all","All Players"],["selected","Selected Players Only"]])}
+       <div class="wc-permission-users" data-wc-audience-users ${wcAudience(d) !== "selected" ? "hidden" : ""}>
+       ${Array.from(game.users || []).filter(u => !u.isGM).map(u => `<label class="wc-permission-user"><input type="checkbox" data-wc-issue-reader="${wcAttr(u.id)}" ${wcReaders(d.allowedUserIds).includes(u.id) ? "checked" : ""}><span>${wcEsc(u.name)}</span></label>`).join("") || `<p class="wc-muted">Create player accounts in Foundry to assign permissions.</p>`}
+       </div><small>Selected editions use Foundry Journal ownership so their content is not copied into public world settings. Players have read-only access.</small>
+     </div>
      <div class="wc-edit-bottom">${wcBtn("save-issue", "Save Issue", "save", "wc-primary")}${wcBtn("back", "Cancel", "times")}</div></section>`;
   }
   _pageForm() {
@@ -689,7 +721,38 @@ class WorldCodex extends Application {
       const id=node.dataset.wcCanvasBlock;
       if (id !== this._canvasSelectedId) {this._selectCanvasBlock(id);}
     });
-    html.on("input blur", "[data-wc-canvas-text]", () => this._syncCanvasDOM());
+    // Write in a comfortably sized, independent editor; update page preview
+    // live without replacing the editor DOM or disturbing the typing caret.
+    html.on("keydown", "[data-wc-canvas-compose]", ev => {
+      if (ev.key !== "Enter" || ev.shiftKey || ev.isComposing || ev.originalEvent?.isComposing) return;
+      const editor=ev.currentTarget;
+      const selection=window.getSelection();
+      if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) return;
+      let line=selection.anchorNode;
+      while (line && line.parentNode !== editor) line=line.parentNode;
+      if (line && line!==editor && wcIsDivider(line.textContent)) {
+        ev.preventDefault();
+        this._insertDivider(editor,true);
+        editor.dispatchEvent(new Event("input",{bubbles:true}));
+      }
+    });
+    html.on("input blur", "[data-wc-canvas-compose]", ev => {
+      const b = this._canvasBlock();
+      if (!b || b.type !== "text") return;
+      b.html = WC_RICH_PREFIX + wcSanitizeRich(ev.currentTarget.innerHTML);
+      const preview=this.element?.find?.(`[data-wc-canvas-block="${b.id}"] .wc-canvas-text`)?.[0];
+      if (preview) preview.innerHTML=wcContent(b.html);
+    });
+    html.on("change", "[data-wc-issue-reader]", ev => {
+      if (this.view !== "issue-form" || !this.draft) return;
+      const id = ev.currentTarget.dataset.wcIssueReader;
+      const ids = new Set(wcReaders(this.draft.allowedUserIds));
+      if (ev.currentTarget.checked) ids.add(id); else ids.delete(id);
+      this.draft.allowedUserIds=[...ids];
+    });
+    html.on("change", '[data-wc-field="audience"]', ev => {
+      this.element?.find?.('[data-wc-audience-users]')?.prop?.('hidden', ev.currentTarget.value !== 'selected');
+    });
     html.on("change", "[data-wc-canvas-coordinate]", ev => {
       if (this.view !== "page-designer") return;
       this._setCanvasCoords(this._canvasBlock(),{[ev.currentTarget.dataset.wcCanvasCoordinate]: Number(ev.currentTarget.value)});
@@ -710,7 +773,7 @@ class WorldCodex extends Application {
     });
     html.on("mousedown", "[data-wc-canvas-format]", ev => ev.preventDefault());
     html.on("click", "[data-wc-canvas-format]", ev => {
-      const active=this.element?.find?.(`[data-wc-canvas-block="${this._canvasSelectedId}"] [data-wc-canvas-text]`)?.[0];
+      const active=this.element?.find?.("[data-wc-canvas-compose]")?.[0];
       if (!active) return;
       active.focus();
       document.execCommand(ev.currentTarget.dataset.wcCanvasFormat,false,ev.currentTarget.dataset.value||null);
@@ -1004,7 +1067,26 @@ class WorldCodex extends Application {
       }
       const publicEntries = cleaned.entries.filter(e => e.visibility === "players");
       const publicCategories = cleaned.categories.filter(c => publicEntries.some(e => e.categoryId === c.id));
-      const publicIssues = cleaned.issues.filter(i => i.published);
+      // Each restricted issue gets its own Foundry JournalEntry, accessible only
+      // to selected players at OBSERVER level. Public data never contains it.
+      // This also works when the GM is offline after the issue is published.
+      const mirrors=Array.from(game.journal || []).filter(j=>j.getFlag?.(WC_ID, WC_SHARED_ISSUE));
+      const privateIssues=cleaned.issues.filter(i=>i.published && wcAudience(i)==="selected");
+      for (const old of mirrors) {
+        if (!privateIssues.some(i=>i.id === old.getFlag(WC_ID, WC_SHARED_ISSUE))) await old.delete();
+      }
+      for (const restricted of privateIssues) {
+        const owner = {default:CONST.DOCUMENT_OWNERSHIP_LEVELS.NONE};
+        for (const id of wcReaders(restricted.allowedUserIds)) {
+          if (game.users?.get?.(id) && !game.users.get(id).isGM) owner[id]=CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER;
+        }
+        const content = {name:`Gazette • ${restricted.paperName} — ${restricted.title}`,
+          ownership:owner,flags:{[WC_ID]:{[WC_SHARED_ISSUE]:restricted.id,[WC_SHARED_COPY]:restricted}}};
+        const existing=mirrors.find(j=>j.getFlag(WC_ID, WC_SHARED_ISSUE) === restricted.id);
+        if (existing) await existing.update(content);
+        else await JournalEntry.create(content);
+      }
+      const publicIssues = cleaned.issues.filter(wcPublishedToEveryone);
       await game.settings.set(WC_ID, "publicData", {
         schema: 1, categories: publicCategories, entries: publicEntries, issues: publicIssues, preferences: cleaned.preferences
       });
@@ -1033,12 +1115,11 @@ class WorldCodex extends Application {
   }
   _syncCanvasDOM() {
     if (this.view !== "page-designer") return;
-    this.element?.find?.("[data-wc-canvas-block]")?.each?.((_, element) => {
-      const block = this._canvasBlock(element.dataset.wcCanvasBlock);
-      if (!block || block.type !== "text") return;
-      const editable = element.querySelector("[data-wc-canvas-text]");
-      if (editable) block.html = WC_RICH_PREFIX + wcSanitizeRich(editable.innerHTML);
-    });
+    const textEditor = this.element?.find?.("[data-wc-canvas-compose]")?.[0];
+    const selected = this._canvasBlock();
+    if (textEditor && selected?.type === "text") {
+      selected.html = WC_RICH_PREFIX + wcSanitizeRich(textEditor.innerHTML);
+    }
   }
   _addCanvasBlock(type, opts = {}) {
     this._syncCanvasDOM();
@@ -1046,9 +1127,17 @@ class WorldCodex extends Application {
     if (!list) return;
     if (list.length >= 180) {ui.notifications.warn("This page already has 180 blocks."); return;}
     const index = list.length;
-    const block = wcCanvasCleanBlock({id:wcId(),type,x:8+(index%4)*5,y:8+(index%5)*6,
-      w:type === "rule" ? 78 : type === "image" ? 38 : 60,
-      h:type === "rule" ? 3 : type === "image" ? 30 : 19,
+    const w = type === "rule" ? 88 : type === "image" ? 55 : 88;
+    const h = type === "rule" ? 4 : type === "image" ? 28 : 18;
+    let spot = null;
+    for (let y = 4; y <= 96 - h && !spot; y += 4) {
+      const x = type === "image" ? 20 : 6;
+      const collides = list.some(b => x < b.x+b.w+2 && x+w+2 > b.x && y < b.y+b.h+2 && y+h+2 > b.y);
+      if (!collides) spot = {x,y};
+    }
+    if (!spot) spot={x:6,y:Math.max(0,96-h)};
+    const block = wcCanvasCleanBlock({id:wcId(),type,x:spot.x,y:spot.y,
+      w, h,
       z:Math.min(999, 1 + Math.max(0,...list.map(b=>b.z))),
       html:type === "text" ? WC_RICH_PREFIX + (opts.heading ? "<h3>New Headline</h3>" : "<p>Write here...</p>") : "",
       src:opts.src || "",size:opts.heading ? 26 : 15});
@@ -1085,7 +1174,7 @@ class WorldCodex extends Application {
   }
   _startIssue(issue = null, data = this.store) {
     this.tab = "gazette"; this.view = "issue-form"; this.editedId = issue?.id || null;
-    this.draft = issue ? wcClone(issue) : {id:wcId(),paperName:data.preferences.paperName || "The Gazette", motto:data.preferences.paperMotto || "",title:"",subtitle:"",date:"",edition:"SPECIAL EDITION",price:"",kicker:"LATEST NEWS",theme:"parchment",coverImage:"",coverWidth:100,published:false,pages:[{id:wcId(),title:"Front Page",articles:[]}]};
+    this.draft = issue ? wcClone(issue) : {id:wcId(),paperName:data.preferences.paperName || "The Gazette", motto:data.preferences.paperMotto || "",title:"",subtitle:"",date:"",edition:"SPECIAL EDITION",price:"",kicker:"LATEST NEWS",theme:"parchment",coverImage:"",coverWidth:100,published:false,audience:"all",allowedUserIds:[],pages:[{id:wcId(),title:"Front Page",articles:[]}]};
   }
   _startArticle(article = null) {
     this.tab = "gazette"; this.view = "article-form"; this.editedId = article?.id || null;
@@ -1195,11 +1284,18 @@ class WorldCodex extends Application {
       return;
     }
     if (action === "new-issue") { this._startIssue(null, data); this.render(); return; }
-    if (action === "edit-issue") { if (!issue) return; this._startIssue(issue, data); this.render(); return; }
+    if (action === "edit-issue" || action === "issue-permissions") {
+      if (!issue) return;
+      this._startIssue(issue, data); this.render();
+      if (action === "issue-permissions") this.element?.find?.(".wc-newspaper-permissions")?.[0]?.scrollIntoView?.({block:"center"});
+      return;
+    }
     if (action === "save-issue") {
       const d = this.draft;
       if (!d.title.trim() || !d.paperName.trim()) throw new Error("Newspaper name and front headline are required.");
       d.coverImage = wcImage(d.coverImage);
+      d.audience = wcAudience(d); d.allowedUserIds = wcReaders(d.allowedUserIds);
+      if (d.audience === "selected" && !d.allowedUserIds.length) throw new Error("Select at least one player for restricted newspaper access.");
       if (this.editedId) data.issues = data.issues.map(i => i.id === this.editedId ? d : i);
       else data.issues.push(d);
       data.preferences = {paperName:d.paperName,paperMotto:d.motto};
@@ -1213,6 +1309,7 @@ class WorldCodex extends Application {
     }
     if (action === "toggle-publish") {
       if (!issue) return;
+      if (!issue.published && wcAudience(issue) === "selected" && !wcReaders(issue.allowedUserIds).length) throw new Error("Choose at least one reader under Permissions first.");
       issue.published = !issue.published;
       if (await this._persist(data)) { this.render(); ui.notifications.info(issue.published ? "Issue published to the player archive." : "Issue unpublished from the player archive."); }
       return;
@@ -1223,7 +1320,8 @@ class WorldCodex extends Application {
     }
     if (action === "announce-issue") {
       if (!issue?.published) throw new Error("Publish this issue before announcing it.");
-      await ChatMessage.create({content:`<div class="wc-chat-notice"><strong>${wcIcon("newspaper")} ${wcEsc(issue.paperName)}</strong><p>${wcEsc(issue.title)} — ${wcEsc(issue.date)}</p><button type="button" class="wc-chat-open" data-issue-id="${wcAttr(issue.id)}">Read this Issue</button></div>`});
+      const whisper = wcAudience(issue) === "selected" ? [...wcReaders(issue.allowedUserIds), ...Array.from(game.users || []).filter(u=>u.isGM).map(u=>u.id)] : [];
+      await ChatMessage.create({content:`<div class="wc-chat-notice"><strong>${wcIcon("newspaper")} ${wcEsc(issue.paperName)}</strong><p>${wcEsc(issue.title)} — ${wcEsc(issue.date)}</p><button type="button" class="wc-chat-open" data-issue-id="${wcAttr(issue.id)}">Read this Issue</button></div>`, ...(whisper.length ? {whisper} : {})});
       return;
     }
     if (action === "design-page") {
@@ -1397,7 +1495,7 @@ let wcApp;
 let wcPendingOpen = null;
 function wcCanOpenShared(msg) {
   const data = game.settings.get(WC_ID, "publicData") || WC_DEFAULT();
-  return msg?.type === "open-issue" ? data.issues.some(i => i.published && i.id === msg.id)
+  return msg?.type === "open-issue" ? (new WorldCodex()).store.issues.some(i => i.published && i.id === msg.id)
     : msg?.type === "open-entry" ? data.entries.some(e => e.visibility === "players" && e.id === msg.id) : false;
 }
 function wcOpen(tab = "codex", id = null) {
@@ -1430,13 +1528,16 @@ Hooks.once("ready", () => {
     if (wcCanOpenShared(msg)) wcOpen(msg.type === "open-issue" ? "gazette" : "codex", msg.id);
     else wcPendingOpen = msg;
   });
-  Hooks.on("updateJournalEntry", (journal) => {
-    if (game.user.isGM && journal.getFlag(WC_ID, "storage") && wcApp?.rendered && !wcApp.draft) wcApp.render();
-  });
+  for (const evt of ["createJournalEntry", "updateJournalEntry", "deleteJournalEntry"]) {
+    Hooks.on(evt, journal => {
+      if (journal.getFlag?.(WC_ID, "storage") && game.user.isGM && wcApp?.rendered && !wcApp.draft) wcApp.render();
+      if (journal.getFlag?.(WC_ID, WC_SHARED_ISSUE) && !game.user.isGM && wcApp?.rendered) wcApp.render();
+    });
+  }
   Hooks.on("renderChatMessage", (message, html) => {
     html.find(".wc-chat-open").on("click", (ev) => {
       const issueId = ev.currentTarget.dataset.issueId;
-      const source = game.user.isGM ? (wcApp || new WorldCodex()).store : game.settings.get(WC_ID, "publicData");
+      const source = (wcApp || new WorldCodex()).store;
       if (source.issues.some(i => i.id === issueId && (game.user.isGM || i.published))) wcOpen("gazette", issueId);
       else ui.notifications.warn("This edition is no longer published.");
     });
