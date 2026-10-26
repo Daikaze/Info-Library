@@ -168,6 +168,69 @@ function wcFigure(src, alt, cls = "") {
   const valid = wcImage(src);
   return valid ? `<img class="${wcAttr(cls)}" src="${wcAttr(valid)}" alt="${wcAttr(alt)}" loading="lazy">` : `<div class="wc-art-empty ${wcAttr(cls)}">${wcIcon("book-open")}</div>`;
 }
+// Freeform newspaper pages are stored as positioned, bounded blocks (percentages
+// rather than pixels) so player view and printable export use the same layout.
+const wcCanvasNumber = (value, fallback, min, max) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(Math.min(max, Math.max(min, number)) * 10) / 10 : fallback;
+};
+const wcCanvasTypes = new Set(["text", "image", "rule"]);
+function wcCanvasCleanBlock(raw = {}) {
+  const type = wcCanvasTypes.has(raw.type) ? raw.type : "text";
+  const w = wcCanvasNumber(raw.w, 44, 8, 100);
+  const h = wcCanvasNumber(raw.h, type === "rule" ? 3 : 24, 3, 100);
+  const x = wcCanvasNumber(raw.x, 4, 0, 100 - w);
+  const y = wcCanvasNumber(raw.y, 4, 0, 100 - h);
+  return {
+    id: String(raw.id || wcId()).slice(0, 80), type, x, y, w, h,
+    z: wcCanvasNumber(raw.z, 1, 0, 999),
+    html: String(raw.html || "").slice(0, 120000),
+    src: wcImage(raw.src),
+    fit: raw.fit === "cover" ? "cover" : "contain",
+    size: wcCanvasNumber(raw.size, type === "text" ? 15 : 13, 9, 52),
+    align: ["left", "center", "right"].includes(raw.align) ? raw.align : "left"
+  };
+}
+function wcCanvasClean(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  return { enabled: !!raw.enabled,
+    blocks: (Array.isArray(raw.blocks) ? raw.blocks : []).slice(0, 180).map(wcCanvasCleanBlock) };
+}
+function wcCanvasBlockHTML(block, editable = false, selected = false) {
+  const b = wcCanvasCleanBlock(block);
+  const coordinates = `left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;z-index:${b.z}`;
+  const controls = editable ? `<div class="wc-canvas-drag" title="Drag to move block" data-wc-canvas-drag>${wcIcon("grip-lines")} <span>${b.type === "text" ? "Text" : b.type === "image" ? "Image" : "Divider"}</span></div>
+    <span class="wc-canvas-size-handle" title="Drag to resize" data-wc-canvas-resize></span>` : "";
+  const body = b.type === "image" ? (b.src ? `<img src="${wcAttr(b.src)}" alt="Newspaper picture" draggable="false" style="object-fit:${b.fit}">` : '<span class="wc-canvas-missing">Choose an image</span>')
+    : b.type === "rule" ? `<hr>`
+    : `<div class="wc-canvas-text" style="font-size:${b.size}px;text-align:${b.align}" ${editable ? 'contenteditable="true" spellcheck="true" data-wc-canvas-text="true"' : ""}>${wcContent(b.html)}</div>`;
+  return `<div class="wc-canvas-block wc-canvas-${b.type} ${selected ? "wc-canvas-selected" : ""}" data-wc-canvas-block="${wcAttr(b.id)}" style="${coordinates}">${controls}<div class="wc-canvas-block-body">${body}</div></div>`;
+}
+function wcPaperCanvas(canvas, editable = false, selectedId = null) {
+  return `<div class="wc-paper-canvas ${editable ? "wc-canvas-editing" : ""}" data-wc-canvas="true">${(canvas?.blocks || []).map(b => wcCanvasBlockHTML(b, editable, b.id === selectedId)).join("")}</div>`;
+}
+function wcInitialPageCanvas(page, issue, isCover) {
+  // Copy, never move/delete, existing articles. The user may return to classic
+  // layout at any time without losing the original stories.
+  const blocks = [];
+  if (isCover && wcImage(issue?.coverImage)) blocks.push(wcCanvasCleanBlock({
+    id:wcId(),type:"image",src:issue.coverImage,x:10,y:3,w:80,h:25,z:1
+  }));
+  (page.articles || []).forEach((a, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const y = Math.min(92, (blocks[0]?.type === "image" && isCover ? 30 : 3) + row * 30);
+    const h = Math.max(8, Math.min(28, 100 - y));
+    const heading = `<h3>${wcEsc(a.headline || "Untitled Article")}</h3>`;
+    const meta = `${a.kicker ? `<h5>${wcEsc(a.kicker)}</h5>` : ""}${a.byline ? `<p><em>${wcEsc(a.byline)}</em></p>` : ""}`;
+    blocks.push(wcCanvasCleanBlock({id:wcId(),type:"text",x:3+col*49,y,w:46,h,html:WC_RICH_PREFIX+heading+meta+wcContent(a.body),size:14}));
+    if (wcImage(a.image)) {
+      const imageY = Math.min(93, y + 17);
+      blocks.push(wcCanvasCleanBlock({id:wcId(),type:"image",x:4+col*49,y:imageY,w:18,h:Math.min(11,100-imageY),src:a.image,z:2}));
+    }
+  });
+  return {enabled:true, blocks};
+}
 function wcPaperArticle(article = {}) {
   const style = ["lead", "standard", "notice"].includes(article.layout) ? article.layout : "standard";
   const picture = wcImage(article.image);
@@ -189,8 +252,8 @@ function wcPaperPage(issue, page, pageIndex) {
     <div class="wc-paper-topline"><span>${wcEsc(issue.edition || "SPECIAL EDITION")}</span><span>${wcEsc(wcDateDisplay(issue.date))}</span><span>${wcEsc(issue.price || "FREE")}</span></div>
     <header class="wc-paper-masthead"><h1>${wcEsc(paperName)}</h1>${issue.motto ? `<p>${wcEsc(issue.motto)}</p>` : ""}</header>
     ${cover ? `<div class="wc-paper-banner"><span>${wcEsc(issue.kicker || "LATEST NEWS")}</span><h2>${wcEsc(issue.title || "The Latest Edition")}</h2>${issue.subtitle ? `<p>${wcEsc(issue.subtitle)}</p>` : ""}</div>` : `<div class="wc-paper-section"><h2>${wcEsc(page.title || `Page ${pageIndex + 1}`)}</h2></div>`}
-    ${cover && wcImage(issue.coverImage) ? `<figure class="wc-paper-cover">${wcFigure(issue.coverImage, issue.title).replace("<img ", `<img style="width:${wcWidth(issue.coverWidth)}%" `)}</figure>` : ""}
-    <div class="wc-paper-articles">${articles.map(wcPaperArticle).join("") || `<p class="wc-paper-empty">No articles on this page yet.</p>`}</div>
+    ${cover && wcImage(issue.coverImage) && !page.canvas?.enabled ? `<figure class="wc-paper-cover">${wcFigure(issue.coverImage, issue.title).replace("<img ", `<img style="width:${wcWidth(issue.coverWidth)}%" `)}</figure>` : ""}
+    ${page.canvas?.enabled ? wcPaperCanvas(page.canvas) : `<div class="wc-paper-articles">${articles.map(wcPaperArticle).join("") || `<p class="wc-paper-empty">No articles on this page yet.</p>`}</div>`}
     <footer class="wc-paper-footer"><span>${wcEsc(paperName)}</span><span>${wcEsc(issue.edition || "")}</span><span>PAGE ${pageIndex + 1} / ${(issue.pages || []).length}</span></footer>
   </section>`;
 }
@@ -222,7 +285,7 @@ function wcSafeImport(raw) {
     kicker: String(issue.kicker || ""), theme: ["parchment", "ivory", "noir"].includes(issue.theme) ? issue.theme : "parchment",
     coverImage: wcImage(issue.coverImage), coverWidth: wcWidth(issue.coverWidth), published: !!issue.published,
     pages: (Array.isArray(issue.pages) ? issue.pages : []).slice(0, 100).map(page => ({
-      id: String(page.id || wcId()), title: String(page.title || ""),
+      id: String(page.id || wcId()), title: String(page.title || ""), canvas: wcCanvasClean(page.canvas),
       articles: (Array.isArray(page.articles) ? page.articles : []).slice(0, 100).map(a => ({
         id: String(a.id || wcId()), headline: String(a.headline || ""), kicker: String(a.kicker || ""),
         byline: String(a.byline || ""), body: String(a.body || ""), image: wcImage(a.image), imageWidth: wcWidth(a.imageWidth),
@@ -369,6 +432,7 @@ class WorldCodex extends Application {
   _gazetteMain(data) {
     if (this.view === "issue-form" && this.isGM) return this._issueForm();
     if (this.view === "page-form" && this.isGM) return this._pageForm();
+    if (this.view === "page-designer" && this.isGM) return this._pageDesigner(data);
     if (this.view === "article-form" && this.isGM) return this._articleForm();
     const issue = data.issues.find(i => i.id === this.issueId && (this.isGM || i.published));
     if (!issue) return wcEmpty("newspaper", "Build your own newspaper", this.isGM ? "Create an edition, add pages and articles, place illustrations and maps, then publish it for your players." : "The newspaper archive is empty. Published editions will appear here.", this.isGM ? "new-issue" : "", "Create First Issue");
@@ -378,10 +442,47 @@ class WorldCodex extends Application {
        <div class="wc-toolbar">${this.isGM ? `${wcBtn("edit-issue", "Edit Issue", "pen")}${wcBtn("toggle-publish", issue.published ? "Unpublish" : "Publish", issue.published ? "eye-slash" : "check-circle", issue.published ? "" : "wc-primary")}${issue.published ? wcBtn("share-issue", "Show Players", "users") : ""}${wcBtn("announce-issue", "Chat Notice", "comment", "", issue.published ? "" : "disabled")}${wcBtn("delete-issue", "", "trash", "wc-danger")}` : ""}${wcBtn("print-issue", "Print", "print")}${wcBtn("export-html", "HTML", "file-code")}</div>
      </div>
      <div class="wc-page-switcher"><span>PAGES</span>${issue.pages.map((p, i) => `<button type="button" class="wc-page-tab ${i === pageIndex ? "wc-selected" : ""}" data-wc-action="select-page" data-id="${wcAttr(p.id)}">${i + 1}. ${wcEsc(p.title || `Page ${i + 1}`)}</button>`).join("")}${this.isGM ? wcBtn("add-page", "", "plus", "wc-icon-button") : ""}</div>
-     ${this.isGM ? `<div class="wc-page-actions">${wcBtn("rename-page", "Page Settings", "pen")}${wcBtn("add-article", "Add Article", "plus", "wc-primary")}${pageIndex > 0 ? wcBtn("page-left", "Move Left", "arrow-left") : ""}${pageIndex < issue.pages.length - 1 ? wcBtn("page-right", "Move Right", "arrow-right") : ""}${issue.pages.length > 1 ? wcBtn("delete-page", "Delete Page", "trash", "wc-danger") : ""}</div>` : ""}
+     ${this.isGM ? `<div class="wc-page-actions">${wcBtn("design-page", "Design Page", "object-group", "wc-primary")}${wcBtn("rename-page", "Page Settings", "pen")}${wcBtn("add-article", "Add Article", "plus")}${pageIndex > 0 ? wcBtn("page-left", "Move Left", "arrow-left") : ""}${pageIndex < issue.pages.length - 1 ? wcBtn("page-right", "Move Right", "arrow-right") : ""}${issue.pages.length > 1 ? wcBtn("delete-page", "Delete Page", "trash", "wc-danger") : ""}</div>` : ""}
      <div class="wc-paper-view">${wcPaperPage(issue, page, pageIndex)}</div>
-     ${this.isGM ? `<div class="wc-article-manager"><div class="wc-section-heading"><h3>Articles on this Page</h3><span>${page.articles.length} story${page.articles.length === 1 ? "" : "ies"}</span></div>
+     ${this.isGM ? `<div class="wc-article-manager"><div class="wc-section-heading"><h3>Articles on this Page</h3><span>${page.articles.length} story${page.articles.length === 1 ? "" : "ies"}</span>${page.canvas?.enabled ? `<small>Canvas layout is active. Original articles remain as backup.</small>` : ""}</div>
       ${page.articles.map((a, i) => `<div class="wc-article-row"><span class="wc-article-number">${i + 1}</span><span class="wc-row-meta"><strong>${wcEsc(a.headline || "Untitled Article")}</strong><small>${wcEsc(a.kicker || a.layout || "Story")}</small></span>${wcBtn("edit-article", "Edit", "pen", "", `data-id="${wcAttr(a.id)}"`)}${i ? wcBtn("article-up", "↑", "", "wc-tight", `data-id="${wcAttr(a.id)}"`) : ""}${i < page.articles.length - 1 ? wcBtn("article-down", "↓", "", "wc-tight", `data-id="${wcAttr(a.id)}"`) : ""}${wcBtn("delete-article", "", "trash", "wc-danger", `data-id="${wcAttr(a.id)}"`)}</div>`).join("") || `<p class="wc-muted">Add your first article to start filling this page.</p>`}</div>` : ""}</section>`;
+  }
+  _pageDesigner(data) {
+    const issue = this._issue(data);
+    const page = this._page(issue);
+    if (!issue || !page || !this.draft?.canvas) return wcEmpty("newspaper", "Page not available", "Return to the newspaper and choose a page.");
+    const canvas = this.draft.canvas;
+    const index = issue.pages.indexOf(page);
+    const current = canvas.blocks.find(b => b.id === this._canvasSelectedId);
+    this._inspectorForId = current?.id || null;
+    const items = wcPaperCanvas(canvas, true, this._canvasSelectedId);
+    const pageMarkup = `<div class="wc-paper wc-paper-${wcAttr(issue.theme)} wc-designer-paper">
+      <div class="wc-paper-topline"><span>${wcEsc(issue.edition || "SPECIAL EDITION")}</span><span>${wcEsc(wcDateDisplay(issue.date))}</span><span>${wcEsc(issue.price || "FREE")}</span></div>
+      <header class="wc-paper-masthead"><h1>${wcEsc(issue.paperName)}</h1>${issue.motto ? `<p>${wcEsc(issue.motto)}</p>` : ""}</header>
+      ${index === 0 ? `<div class="wc-paper-banner"><span>${wcEsc(issue.kicker || "LATEST NEWS")}</span><h2>${wcEsc(issue.title)}</h2>${issue.subtitle ? `<p>${wcEsc(issue.subtitle)}</p>` : ""}</div>` : `<div class="wc-paper-section"><h2>${wcEsc(page.title || `Page ${index+1}`)}</h2></div>`}
+      ${items}<footer class="wc-paper-footer"><span>${wcEsc(issue.paperName)}</span><span>${wcEsc(issue.edition || "")}</span><span>PAGE ${index+1} / ${issue.pages.length}</span></footer>
+    </div>`;
+    return `<section class="wc-designer">
+      <div class="wc-designer-header"><div><div class="wc-kicker">LIVE PAGE DESIGNER</div><h2>${wcEsc(page.title || `Page ${index+1}`)}</h2><p>Move blocks using their top handle. Drag the lower-right corner to resize. Click inside text to write directly on the page.</p></div>
+      <div class="wc-toolbar">${wcBtn("save-canvas", "Save Page", "save", "wc-primary")}${wcBtn("cancel-canvas", "Cancel", "times")}</div></div>
+      <div class="wc-designer-toolbar">${wcBtn("canvas-add-heading", "Heading", "heading")}${wcBtn("canvas-add-text", "Text", "font")}${wcBtn("canvas-add-image", "Image", "image")}${wcBtn("canvas-add-url", "Image URL", "link")}${wcBtn("canvas-add-rule", "Divider", "minus")}</div>
+      <div class="wc-designer-workspace"><div class="wc-designer-stage">${pageMarkup}</div>
+       <aside class="wc-designer-inspector"><h3>Selected element</h3>
+       ${current ? `<strong>${current.type === "image" ? "Image" : current.type === "rule" ? "Divider" : "Text Block"}</strong>
+       <div class="wc-inspector-grid"><label>X (%)<input type="number" min="0" max="100" step="0.5" data-wc-canvas-coordinate="x" value="${current.x}"></label>
+       <label>Y (%)<input type="number" min="0" max="100" step="0.5" data-wc-canvas-coordinate="y" value="${current.y}"></label>
+       <label>Width (%)<input type="number" min="8" max="100" step="0.5" data-wc-canvas-coordinate="w" value="${current.w}"></label>
+       <label>Height (%)<input type="number" min="3" max="100" step="0.5" data-wc-canvas-coordinate="h" value="${current.h}"></label></div>
+       ${current.type === "text" ? `<label class="wc-inspector-full">Text size <input data-wc-canvas-prop="size" type="number" min="9" max="52" value="${current.size}"></label>
+       <label class="wc-inspector-full">Align <select data-wc-canvas-prop="align"><option value="left" ${current.align === "left" ? "selected" : ""}>Left</option><option value="center" ${current.align === "center" ? "selected" : ""}>Center</option><option value="right" ${current.align === "right" ? "selected" : ""}>Right</option></select></label>
+       <div class="wc-designer-format"><button type="button" data-wc-canvas-format="bold" title="Bold"><b>B</b></button><button type="button" data-wc-canvas-format="italic" title="Italic"><em>I</em></button><button type="button" data-wc-canvas-format="formatBlock" data-value="h3" title="Heading">H</button><button type="button" data-wc-canvas-format="insertUnorderedList" title="Bullets">${wcIcon("list-ul")}</button></div>` : ""}
+       ${current.type === "image" ? `<label class="wc-inspector-full">Fit <select data-wc-canvas-prop="fit"><option value="contain" ${current.fit === "contain" ? "selected" : ""}>Contain (whole image)</option><option value="cover" ${current.fit === "cover" ? "selected" : ""}>Cover (crop)</option></select></label>${wcBtn("canvas-replace-image", "Replace Picture", "image")}` : ""}
+       <div class="wc-inspector-actions">${wcBtn("canvas-bring-front", "To Front", "layer-group")}${wcBtn("canvas-send-back", "To Back", "clone")}${wcBtn("canvas-duplicate", "Duplicate", "copy")}${wcBtn("canvas-delete", "Delete", "trash", "wc-danger")}</div>`
+       : `<p class="wc-muted">Click a block on the page or add a new element.</p>`}
+       <hr><h3>Layout mode</h3><p class="wc-muted">The canvas replaces the classic article grid when you save. Your original articles remain stored.</p>
+       ${wcBtn("canvas-classic", "Use Classic Layout", "columns", "", canvas.enabled ? "" : "disabled")}
+       </aside></div><p class="wc-designer-footnote">The design is saved to this page only. The player view, PDF print, and HTML export use the same positions.</p>
+    </section>`;
   }
   _issueForm() {
     const d = this.draft;
@@ -581,6 +682,71 @@ class WorldCodex extends Application {
   activateListeners(html) {
     super.activateListeners(html);
     html.on("click", "[data-wc-action]", (ev) => { ev.preventDefault(); this._onAction(ev).catch(e => this._error(e)); });
+    // Direct page editing: selection / text editing / precise fields.
+    html.on("pointerdown", "[data-wc-canvas-block]", ev => {
+      if (this.view !== "page-designer" || !this.isGM) return;
+      const node=ev.currentTarget;
+      const id=node.dataset.wcCanvasBlock;
+      if (id !== this._canvasSelectedId) {this._selectCanvasBlock(id);}
+    });
+    html.on("input blur", "[data-wc-canvas-text]", () => this._syncCanvasDOM());
+    html.on("change", "[data-wc-canvas-coordinate]", ev => {
+      if (this.view !== "page-designer") return;
+      this._setCanvasCoords(this._canvasBlock(),{[ev.currentTarget.dataset.wcCanvasCoordinate]: Number(ev.currentTarget.value)});
+    });
+    html.on("change", "[data-wc-canvas-prop]", ev => {
+      const selected=this._canvasBlock();
+      if (!selected) return;
+      const key=ev.currentTarget.dataset.wcCanvasProp;
+      if (key === "size") selected.size=wcCanvasNumber(ev.currentTarget.value, 15, 9, 52);
+      else if (key === "fit") selected.fit=ev.currentTarget.value === "cover" ? "cover" : "contain";
+      else if (key === "align") selected.align=["left","center","right"].includes(ev.currentTarget.value)?ev.currentTarget.value:"left";
+      const node=this.element.find(`[data-wc-canvas-block="${selected.id}"]`)[0];
+      if (node) {
+        const text=node.querySelector(".wc-canvas-text");
+        if (text) {text.style.fontSize=`${selected.size}px`;text.style.textAlign=selected.align;}
+        const img=node.querySelector("img");if(img)img.style.objectFit=selected.fit;
+      }
+    });
+    html.on("mousedown", "[data-wc-canvas-format]", ev => ev.preventDefault());
+    html.on("click", "[data-wc-canvas-format]", ev => {
+      const active=this.element?.find?.(`[data-wc-canvas-block="${this._canvasSelectedId}"] [data-wc-canvas-text]`)?.[0];
+      if (!active) return;
+      active.focus();
+      document.execCommand(ev.currentTarget.dataset.wcCanvasFormat,false,ev.currentTarget.dataset.value||null);
+      this._syncCanvasDOM();
+    });
+    html.on("pointerdown", "[data-wc-canvas-drag], [data-wc-canvas-resize]", ev => {
+      if (this.view !== "page-designer" || !this.isGM || ev.button !== 0) return;
+      const blockEl=ev.currentTarget.closest("[data-wc-canvas-block]");
+      const block=this._canvasBlock(blockEl?.dataset.wcCanvasBlock);
+      const canvas=blockEl?.closest("[data-wc-canvas]");
+      if (!block || !canvas) return;
+      this._syncCanvasDOM(); this._canvasSelectedId=block.id;
+      ev.preventDefault();ev.stopPropagation();
+      const resize=!!ev.currentTarget.hasAttribute("data-wc-canvas-resize");
+      const original=ev.originalEvent || ev;
+      const startX=original.clientX,startY=original.clientY;
+      const start={x:block.x,y:block.y,w:block.w,h:block.h};
+      const bounds=canvas.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const move=(event)=>{
+        if (!blockEl.isConnected) {done();return;}
+        const dx=(event.clientX-startX)*100/bounds.width;
+        const dy=(event.clientY-startY)*100/bounds.height;
+        this._setCanvasCoords(block, resize ? {w:start.w+dx,h:start.h+dy} : {x:start.x+dx,y:start.y+dy});
+      };
+      const done=()=>{
+        window.removeEventListener("pointermove",move);
+        window.removeEventListener("pointerup",done);
+        window.removeEventListener("pointercancel",done);
+        if (this.view === "page-designer") this.render();
+      };
+      window.addEventListener("pointermove",move);
+      window.addEventListener("pointerup",done,{once:true});
+      window.addEventListener("pointercancel",done,{once:true});
+    });
+
     // Dragging affects only GM-owned Codex records. The entry id is validated
     // against private storage at drop time; no arbitrary browser payload is trusted.
     html.on("dragstart", "[data-wc-entry-drag]", (ev) => {
@@ -853,6 +1019,70 @@ class WorldCodex extends Application {
     this.tab = "codex"; this.view = "entry-form"; this.editedId = entry?.id || null;
     this.draft = entry ? wcClone(entry) : {id:wcId(),categoryId:this.categoryFilter !== "all" ? this.categoryFilter : (data.categories[0]?.id || ""), name:"", subtitle:"", image:"",imageWidth:100,summary:"",body:"",tags:[],fields:[],visibility:"gm",updatedAt:""};
   }
+  _startPageDesigner(issue, page) {
+    this._checkGM();
+    this.tab = "gazette";
+    this.view = "page-designer";
+    this.editingPageId = page.id;
+    this._canvasSelectedId = null;
+    this.draft = { canvas: page.canvas?.blocks ? wcClone(page.canvas) : wcInitialPageCanvas(page, issue, issue.pages[0]?.id === page.id) };
+    this.draft.canvas.enabled = true;
+  }
+  _canvasBlock(id = this._canvasSelectedId) {
+    return this.draft?.canvas?.blocks?.find(block => block.id === id) || null;
+  }
+  _syncCanvasDOM() {
+    if (this.view !== "page-designer") return;
+    this.element?.find?.("[data-wc-canvas-block]")?.each?.((_, element) => {
+      const block = this._canvasBlock(element.dataset.wcCanvasBlock);
+      if (!block || block.type !== "text") return;
+      const editable = element.querySelector("[data-wc-canvas-text]");
+      if (editable) block.html = WC_RICH_PREFIX + wcSanitizeRich(editable.innerHTML);
+    });
+  }
+  _addCanvasBlock(type, opts = {}) {
+    this._syncCanvasDOM();
+    const list = this.draft?.canvas?.blocks;
+    if (!list) return;
+    if (list.length >= 180) {ui.notifications.warn("This page already has 180 blocks."); return;}
+    const index = list.length;
+    const block = wcCanvasCleanBlock({id:wcId(),type,x:8+(index%4)*5,y:8+(index%5)*6,
+      w:type === "rule" ? 78 : type === "image" ? 38 : 60,
+      h:type === "rule" ? 3 : type === "image" ? 30 : 19,
+      z:Math.min(999, 1 + Math.max(0,...list.map(b=>b.z))),
+      html:type === "text" ? WC_RICH_PREFIX + (opts.heading ? "<h3>New Headline</h3>" : "<p>Write here...</p>") : "",
+      src:opts.src || "",size:opts.heading ? 26 : 15});
+    list.push(block);
+    this._canvasSelectedId = block.id;
+    this.render();
+  }
+  _selectCanvasBlock(id) {
+    if (!this._canvasBlock(id)) return;
+    // A full render would drop text focus, so only update selection styling;
+    // rerender on pointer end / click when appropriate.
+    this._syncCanvasDOM();
+    this._canvasSelectedId = id;
+    this.element?.find?.(".wc-canvas-block")?.removeClass("wc-canvas-selected");
+    this.element?.find?.(`[data-wc-canvas-block="${id}"]`)?.addClass("wc-canvas-selected");
+    // Only update properties panel: re-rendering the full window here would
+    // steal contenteditable focus/caret and make in-place writing difficult.
+    const inspector=this.element?.find?.(".wc-designer-inspector")?.[0];
+    if (inspector) {
+      const template=document.createElement("div");
+      template.innerHTML=this._pageDesigner(this.store);
+      const next=template.querySelector(".wc-designer-inspector");
+      if (next) inspector.replaceWith(next);
+    }
+  }
+  _setCanvasCoords(block, updates) {
+    if (!block) return;
+    Object.assign(block, updates);
+    const clean = wcCanvasCleanBlock(block);
+    Object.assign(block, {x:clean.x,y:clean.y,w:clean.w,h:clean.h});
+    const el = this.element?.find?.(`[data-wc-canvas-block="${block.id}"]`)?.[0];
+    if (el) Object.assign(el.style, {left:`${block.x}%`,top:`${block.y}%`,width:`${block.w}%`,height:`${block.h}%`});
+    for (const key of ["x","y","w","h"]) this.element?.find?.(`[data-wc-canvas-coordinate="${key}"]`)?.val?.(block[key]);
+  }
   _startIssue(issue = null, data = this.store) {
     this.tab = "gazette"; this.view = "issue-form"; this.editedId = issue?.id || null;
     this.draft = issue ? wcClone(issue) : {id:wcId(),paperName:data.preferences.paperName || "The Gazette", motto:data.preferences.paperMotto || "",title:"",subtitle:"",date:"",edition:"SPECIAL EDITION",price:"",kicker:"LATEST NEWS",theme:"parchment",coverImage:"",coverWidth:100,published:false,pages:[{id:wcId(),title:"Front Page",articles:[]}]};
@@ -996,6 +1226,59 @@ class WorldCodex extends Application {
       await ChatMessage.create({content:`<div class="wc-chat-notice"><strong>${wcIcon("newspaper")} ${wcEsc(issue.paperName)}</strong><p>${wcEsc(issue.title)} — ${wcEsc(issue.date)}</p><button type="button" class="wc-chat-open" data-issue-id="${wcAttr(issue.id)}">Read this Issue</button></div>`});
       return;
     }
+    if (action === "design-page") {
+      if (!page) return;
+      this._startPageDesigner(issue, page); this.render(); return;
+    }
+    if (action === "cancel-canvas") { this._clearEditor(); this.render(); return; }
+    if (action === "save-canvas") {
+      if (!page || this.view !== "page-designer" || page.id !== this.editingPageId) return;
+      this._syncCanvasDOM();
+      page.canvas = wcCanvasClean(this.draft.canvas);
+      if (await this._persist(data)) { this._clearEditor(); this.render(); ui.notifications.info("Newspaper page layout saved."); }
+      return;
+    }
+    if (action === "canvas-classic") {
+      if (!page || this.view !== "page-designer") return;
+      if (!await this._confirm("Return to Classic Layout?", "Your canvas blocks will be saved but hidden; existing original articles will be displayed. You may return to the canvas any time.")) return;
+      this._syncCanvasDOM();
+      page.canvas = wcCanvasClean({...this.draft.canvas,enabled:false});
+      if (await this._persist(data)) {this._clearEditor(); this.render();}
+      return;
+    }
+    if (action === "canvas-add-text") {this._addCanvasBlock("text"); return;}
+    if (action === "canvas-add-heading") {this._addCanvasBlock("text",{heading:true}); return;}
+    if (action === "canvas-add-rule") {this._addCanvasBlock("rule"); return;}
+    if (action === "canvas-add-image" || action === "canvas-replace-image") {
+      const targetId = action === "canvas-replace-image" ? this._canvasSelectedId : null;
+      new FilePicker({type:"image", callback:(path) => {
+        if (this.view !== "page-designer" || !wcImage(path)) return;
+        if (targetId) {const b=this._canvasBlock(targetId); if (b?.type === "image") {this._syncCanvasDOM(); b.src=path; this.render();}}
+        else this._addCanvasBlock("image",{src:path});
+      }}).render(true);
+      return;
+    }
+    if (action === "canvas-add-url") {
+      const url = await Dialog.prompt({title:"Insert Image",content:'<label>Foundry path or HTTPS image URL <input name="image" type="text" style="width:100%"></label>',callback:html=>html.find('[name="image"]').val()});
+      if (url && wcImage(url)) this._addCanvasBlock("image",{src:url});
+      else if(url) ui.notifications.warn("Invalid image path or URL.");
+      return;
+    }
+    if (["canvas-delete","canvas-duplicate","canvas-bring-front","canvas-send-back"].includes(action)) {
+      this._syncCanvasDOM();
+      const list = this.draft?.canvas?.blocks;
+      const selected = this._canvasBlock();
+      if (!list || !selected) return;
+      if (action === "canvas-delete") {this.draft.canvas.blocks = list.filter(b=>b.id!==selected.id); this._canvasSelectedId=null;}
+      if (action === "canvas-duplicate") {
+        if (list.length>=180) {ui.notifications.warn("This page already has 180 blocks.");return;}
+        const b=wcCanvasCleanBlock({...selected,id:wcId(),x:Math.min(100-selected.w,selected.x+4),y:Math.min(100-selected.h,selected.y+4)});
+        list.push(b); this._canvasSelectedId=b.id;
+      }
+      if (action === "canvas-bring-front") selected.z=Math.min(999,Math.max(...list.map(b=>b.z))+1);
+      if (action === "canvas-send-back") selected.z=Math.max(0,Math.min(...list.map(b=>b.z))-1);
+      this.render(); return;
+    }
     if (action === "add-page") {
       if (!issue) return;
       const newPage = {id:wcId(),title:`Page ${issue.pages.length + 1}`,articles:[]};
@@ -1090,6 +1373,15 @@ function wcStandalonePaper(issue) {
   .wc-story-byline{font-size:9px;font-weight:bold;letter-spacing:1px;border-bottom:1px solid #9b8772;padding-bottom:5px;margin:5px 0}.wc-article-figure{margin:8px 0}.wc-article-figure img{max-width:100%;height:auto;max-height:75mm;object-fit:contain;display:block;margin:auto}.wc-article-figure figcaption{font-size:10px;font-style:italic}
   .wc-story-copy img{max-width:100%;height:auto;object-fit:contain;break-inside:avoid}.wc-story-copy ul,.wc-story-copy ol{padding-left:20px}.wc-story-copy a{color:inherit;text-decoration:underline}
   .wc-story-copy hr{display:block;border:0;border-top:1px solid currentColor;opacity:.65;margin:12px 0;break-inside:avoid}
+  .wc-paper-canvas{position:relative;width:100%;height:auto;aspect-ratio:7/8;overflow:hidden;isolation:isolate;margin:10px 0 12px;box-sizing:border-box}
+  .wc-canvas-block{position:absolute;box-sizing:border-box;min-width:0;min-height:0;overflow:hidden}
+  .wc-canvas-block-body{width:100%;height:100%;overflow:hidden;position:relative}
+  .wc-canvas-text{font-family:Georgia,serif;line-height:1.35;overflow:hidden;height:100%;overflow-wrap:anywhere;padding:2px;box-sizing:border-box}
+  .wc-canvas-text p{margin:0 0 7px;line-height:1.4}.wc-canvas-text h3,.wc-canvas-text h4{font-family:Georgia,serif;font-size:1.45em;margin:3px 0 8px;line-height:1.12}
+  .wc-canvas-text h5{font-size:.84em;margin:4px 0}.wc-canvas-text ul,.wc-canvas-text ol{padding-left:19px;margin:6px 0}
+  .wc-canvas-text img{max-width:100%;height:auto;object-fit:contain}.wc-canvas-text hr{border:0;border-top:1px solid currentColor;margin:12px 0}
+  .wc-canvas-image img{width:100%;height:100%;display:block;object-position:center}
+  .wc-canvas-rule .wc-canvas-block-body{display:flex;align-items:center}.wc-canvas-rule hr{border:0;border-top:2px solid currentColor;width:100%;opacity:.7}
   .wc-story-notice{border:1px solid currentColor;padding:10px}.wc-paper-footer{display:flex;justify-content:space-between;border-top:2px solid;margin-top:35px;padding-top:8px;font-size:10px;font-weight:bold}
   @media print{body{background:none}.tools{display:none}.wc-paper{margin:0;box-shadow:none;width:210mm;min-height:277mm;padding:12mm}@page{size:A4;margin:0}}`;
   const pages = wcAllPaperPages(issue);

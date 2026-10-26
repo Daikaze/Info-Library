@@ -243,3 +243,64 @@
 .world-codex-window .wc-rich-editable img.wc-image-moving {cursor:grabbing!important;outline:1px dashed #efbd7b;box-shadow:0 0 0 2px #eec68c}
 .world-codex-window .wc-image-position {color:#f2dcb5;font-variant-numeric:tabular-nums;font-size:11px}
 .world-codex-window .wc-rich-editable {min-height:235px}
+
+
+/* v0.1.4 — direct newspaper-page editing. Block geometry uses percentages of
+   the page canvas so it remains consistent for GM, players and print. */
+.world-codex-window .wc-paper-canvas {
+  position:relative;display:block;width:100%;height:auto;aspect-ratio:7/8;
+  background:repeating-linear-gradient(to bottom,transparent 0, transparent 95px,rgba(90,80,60,.08) 96px);
+  overflow:hidden;isolation:isolate;margin:10px 0 12px;min-width:0;
+}
+.world-codex-window .wc-canvas-block {
+  position:absolute;box-sizing:border-box;min-width:0;min-height:0;
+  color:inherit;overflow:hidden;
+}
+.world-codex-window .wc-canvas-block-body {position:relative;width:100%;height:100%;min-height:0;overflow:hidden;}
+.world-codex-window .wc-canvas-text {display:block;width:100%;min-height:100%;height:100%;font:inherit;line-height:1.35;overflow:auto;overflow-wrap:anywhere;padding:2px;color:inherit;}
+.world-codex-window .wc-canvas-text p{margin:0 0 7px;line-height:1.4;}
+.world-codex-window .wc-canvas-text h2,.world-codex-window .wc-canvas-text h3,.world-codex-window .wc-canvas-text h4{font-family:Georgia,serif;color:inherit;line-height:1.12;margin:3px 0 8px;font-size:1.45em}
+.world-codex-window .wc-canvas-text h5{font:bold .84em Georgia,serif;letter-spacing:.4px;margin:4px 0}
+.world-codex-window .wc-canvas-text ul,.world-codex-window .wc-canvas-text ol{padding-left:19px;margin:6px 0}
+.world-codex-window .wc-canvas-text img {max-width:100%;height:auto;object-fit:contain;}
+.world-codex-window .wc-canvas-text hr{border:0;border-top:1px solid currentColor;margin:12px 0;}
+.world-codex-window .wc-canvas-image img{width:100%;height:100%;display:block;object-position:center}
+.world-codex-window .wc-canvas-rule{display:flex;align-items:center}
+.world-codex-window .wc-canvas-rule .wc-canvas-block-body{display:flex;align-items:center}
+.world-codex-window .wc-canvas-rule hr{border:0;border-top:2px solid currentColor;width:100%;margin:0;opacity:.7}
+.world-codex-window .wc-canvas-missing{display:grid;place-items:center;height:100%;border:1px dashed currentColor;opacity:.65}
+.world-codex-window .wc-designer {padding:20px 18px 50px;}
+.world-codex-window .wc-designer-header {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:0 5px 12px;border-bottom:1px solid #555}
+.world-codex-window .wc-designer-header h2{font-size:25px;color:#f6d09b;margin:5px 0}
+.world-codex-window .wc-designer-header p{max-width:680px;font-size:12px;line-height:1.5;color:#d4d6d9}
+.world-codex-window .wc-designer-toolbar{display:flex;flex-wrap:wrap;gap:6px;padding:13px 0;}
+.world-codex-window .wc-designer-workspace{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:12px;align-items:start}
+.world-codex-window .wc-designer-stage{overflow:auto;background:#121924;border:1px solid #47505a;border-radius:8px;padding:10px}
+.world-codex-window .wc-designer-paper {width:100%;max-width:none;min-height:0;padding:24px 24px 18px;box-shadow:0 2px 14px #0008}
+.world-codex-window .wc-paper-canvas.wc-canvas-editing{border:1px dashed rgba(146,116,76,.5);background-size:100% 10%;background-image:linear-gradient(to right,rgba(98,79,47,.1) 1px,transparent 1px),linear-gradient(to bottom,rgba(98,79,47,.1) 1px,transparent 1px);background-size:10% 10%;}
+.world-codex-window .wc-canvas-editing .wc-canvas-block{outline:1px dashed rgba(136,92,55,.5);overflow:visible;cursor:default;}
+.world-codex-window .wc-canvas-editing .wc-canvas-block.wc-canvas-selected{outline:2px solid #bd7626!important;box-shadow:0 0 0 3px #ffe0a088}
+.world-codex-window .wc-canvas-editing .wc-canvas-block-body{overflow:hidden}
+.world-codex-window .wc-canvas-editing .wc-canvas-text{outline:0;cursor:text;overflow:auto}
+.world-codex-window .wc-canvas-editing .wc-canvas-text:focus {box-shadow:inset 0 0 0 2px #d5a264}
+.world-codex-window .wc-canvas-drag{
+  position:absolute;top:0;left:0;max-width:100%;z-index:3;display:flex;align-items:center;gap:4px;
+  padding:2px 7px;background:#223343;color:#fff4d9;font:600 10px Arial,sans-serif;
+  border-radius:0 0 5px 0;cursor:grab;touch-action:none;user-select:none;white-space:nowrap;
+}
+.world-codex-window .wc-canvas-drag:active{cursor:grabbing}
+.world-codex-window .wc-canvas-size-handle {position:absolute;z-index:5;right:-6px;bottom:-6px;width:15px;height:15px;border:2px solid #fff2d4;border-radius:3px;background:#b27a3b;cursor:nwse-resize;touch-action:none}
+.world-codex-window .wc-designer-inspector{padding:13px;background:#1d2834;border:1px solid #55616b;color:#f2ecdf;border-radius:7px;position:sticky;top:8px;min-width:0}
+.world-codex-window .wc-designer-inspector h3{font-size:14px;color:#eac48d;margin:0 0 12px}
+.world-codex-window .wc-designer-inspector>strong{font-size:12px;display:block;margin:0 0 8px;color:#f2e9dc}
+.world-codex-window .wc-designer-inspector .wc-inspector-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:12px 0}
+.world-codex-window .wc-designer-inspector label{display:block;min-width:0;color:#e7d4bd;font-size:11px;margin-bottom:6px}
+.world-codex-window .wc-designer-inspector input,.world-codex-window .wc-designer-inspector select{box-sizing:border-box;width:100%;height:31px;margin:4px 0 0;padding:4px;background:#0f1a26!important;color:#fff5e4!important;border:1px solid #8e7b65!important;border-radius:4px;min-width:0}
+.world-codex-window .wc-designer-inspector select option{background:#101a27;color:#fff}
+.world-codex-window .wc-inspector-actions{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0}
+.world-codex-window .wc-inspector-actions .wc-btn,.world-codex-window .wc-designer-inspector>.wc-btn{width:100%;justify-content:center;font-size:11px!important}
+.world-codex-window .wc-designer-format{display:flex;gap:6px;margin:8px 0 12px}
+.world-codex-window .wc-designer-format button{flex:1;min-height:30px;color:#ffe4b7!important;background:#324155!important;border:1px solid #6b6d6c!important}
+.world-codex-window .wc-designer-footnote{font-size:12px;color:#d2bea1;margin:12px 5px;line-height:1.5}
+.world-codex-window .wc-designer-inspector hr{border:0;border-top:1px solid #6d665e;margin:15px 0}
+@media(max-width:900px){.world-codex-window .wc-designer-workspace{grid-template-columns:1fr}.world-codex-window .wc-designer-inspector{position:static}}

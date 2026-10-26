@@ -36,3 +36,15 @@
 - [ ] Create two categories and entries in both; All Categories groups by category header with counts and collapsible entries.
 - [ ] Search within All Categories, and filter a single category; no hidden/private entries appear to players.
 - [ ] Verify Category, Visibility, Theme and Layout drop-down menus are dark with legible text in Windows Firefox and other V11 clients; test keyboard arrows, Esc and selecting.
+
+
+## v0.1.4 direct page design regression
+
+- [ ] GM: open a page, click **Design Page**. Existing cover and article text appear as independently editable blocks.
+- [ ] Add text, heading, divider, image via FilePicker and via URL. Click inside text, write, select text and apply formatting.
+- [ ] Drag from dark top grip, resize from the lower-right handle, edit X/Y/W/H fields, image fit and text size/alignment. Save and reopen.
+- [ ] Publish and inspect in a player client: layout unchanged, editing controls absent.
+- [ ] Print / Save PDF and export HTML: canvas preserves geometry and safe image paths.
+- [ ] Use **Use Classic Layout** to restore original articles; then reopen designer and verify canvas blocks were retained.
+- [ ] Check existing newspaper issues, JSON backups, old article editing, legacy Codex rich-text editor and drag-drop categories.
+- [ ] Inspect particularly long text blocks in the player view and A4 print; increase their height if content overflows.

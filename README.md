@@ -1,4 +1,4 @@
-# World Codex & Gazette v0.1.3
+# World Codex & Gazette v0.1.4
 
 A self-contained **Foundry VTT v11** module for **D&D 5e 3.3.1**, inspired by the two-column presentation of Divine Codex. This is a **new, independent module**; it does not overwrite or require Gods — Divine Codex.
 
@@ -77,3 +77,13 @@ Image assets are linked from your Foundry filesystem or an external HTTP(S) URL,
 - **Freely position inserted pictures:** while editing a Codex summary, lore or newspaper article, click and hold an inserted image, drag it horizontally or vertically to adjust its location, and release. The 2D offset is saved alongside its size and alignment, survives save, reopen, JSON backup/import, printing and published views. Use **Reset position** to put it back at its normal place in the text.
 - Free positioning is a *visual offset* from the image's location in the text, so it can overlap nearby words if moved too far. Use smaller image size or create a new paragraph to leave enough space.
 - Save the record/article as usual. When using browser/Foundry zoom or a different window width, pixel offsets may look slightly different.
+
+
+## Live Page Designer (v0.1.4)
+
+- In **Newspapers → open an issue → select a page**, click **Design Page**. Edit the visual newspaper page *in place*. Add **Heading**, **Text**, **Image** (Foundry FilePicker), **Image URL**, or **Divider**. Each item is independently movable and resizable.
+- Drag a block from the dark **top handle**; resize using its **bottom-right gold square**. Click text to type directly into the page. Use the right inspector to set exact X/Y/width/height in percent, text size/alignment, image crop/contain, duplicate, delete, and arrange stacking order. Standard bold, italic, heading, and list formatting is available for selected text.
+- Click **Save Page** when done. Saving stores a per-page `canvas` with relative block positions. **Published player views, HTML export, and Print** use the same geometry. The designer is **GM-only**. **Cancel** discards changes since the last save.
+- Opening the designer on an old newspaper page copies existing article headings, bodies, illustrations and the front cover into editable canvas blocks. Original articles are **not deleted**. From the designer use **Use Classic Layout** to restore the original article grid without erasing the saved canvas. Existing old imports/backups without canvas still work.
+- **Note:** A canvas is an absolutely positioned page. Blocks do *not* push neighboring blocks out of the way; use the resize/position handles to avoid overlaps, and ensure text fits into its box before printing. A4 print uses a scaled version of the page canvas.
+- Keep a backup before large layout changes; the old article forms and earlier published content remain available.
