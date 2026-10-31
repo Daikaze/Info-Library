@@ -1,0 +1,74 @@
+name: Validate and publish World Codex V14
+on:
+  push:
+    branches: [foundry-v14]
+    paths:
+      - "module.json"
+      - "scripts/v14-main.js"
+      - "styles/**"
+      - "tests/v14-smoke.test.cjs"
+      - ".github/workflows/v14-release.yml"
+  pull_request:
+    branches: [foundry-v14]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate V14 JavaScript and journal/canvas regressions
+        run: |
+          set -euo pipefail
+          node --check scripts/v14-main.js
+          node tests/v14-smoke.test.cjs
+      - name: Build and inspect V14 install package
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, json, zipfile
+          m=json.loads(pathlib.Path("module.json").read_text())
+          assert m["id"]=="world-codex"
+          assert m["version"]=="14.0.1"
+          assert m["compatibility"]["verified"]=="14"
+          assert m["relationships"]["systems"][0]["compatibility"]["verified"]=="6.0.6"
+          assert m["manifest"]=="https://raw.githubusercontent.com/Daikaze/Info-Library/foundry-v14/module.json"
+          assert m["download"]==f'https://github.com/Daikaze/Info-Library/releases/download/v{m["version"]}/world-codex-v14.zip'
+          assert m["esmodules"]==["scripts/v14-main.js"]
+          assert m["styles"]==["styles/world-codex.css","styles/v14-native.css"]
+          files=["module.json","README.md","assets/icon.svg","scripts/v14-main.js",
+            "styles/world-codex.css","styles/v14-native.css"]
+          with zipfile.ZipFile("world-codex-v14.zip","w",zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+            for path in files:
+              assert pathlib.Path(path).is_file(),path
+              z.write(path)
+          with zipfile.ZipFile("world-codex-v14.zip") as z:
+            assert z.testzip() is None
+            assert json.loads(z.read("module.json"))==m
+            assert set(m["styles"]+m["esmodules"]).issubset(z.namelist())
+          # The original V11 binary must stay in the repository.
+          assert pathlib.Path("world-codex-v0.1.5-v11.zip").is_file()
+          print("Foundry V14 install ZIP verified")
+          PY
+      - name: Publish immutable V14 release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/foundry-v14'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./module.json').version")"
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::warning title=Release already exists::Please bump version to publish changes without replacing an immutable ZIP."
+            exit 0
+          fi
+          gh release create "$TAG" world-codex-v14.zip module.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "World Codex & Gazette $TAG — Foundry V14" \
+            --notes "Separate V14 / D&D 5e 6.0.6 ApplicationV2 port with private Journal storage, player visibility, unrestricted category editing and Gazette designer. Foundry V11 main branch remains v0.1.5." \
+            --latest=false
