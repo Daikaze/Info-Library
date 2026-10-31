@@ -1,40 +1,38 @@
 {
   "id": "world-codex",
   "title": "World Codex & Gazette",
-  "description": "A GM-managed illustrated world encyclopedia with freely created categories and a printable, publishable fantasy newspaper builder.",
-  "version": "0.1.5",
+  "description": "Foundry V14 / D&D5e 6.0.6 world encyclopedia, custom categories, GM-controlled illustrated entries and newspaper/page designer with private Journal permissions.",
+  "version": "14.0.1",
   "authors": [
     {
       "name": "Daikaze"
     }
   ],
   "compatibility": {
-    "minimum": "11",
-    "verified": "11",
-    "maximum": "11"
+    "minimum": "14",
+    "verified": "14",
+    "maximum": "14"
   },
-  "system": [
-    "dnd5e"
-  ],
   "relationships": {
     "systems": [
       {
         "id": "dnd5e",
         "type": "system",
         "compatibility": {
-          "minimum": "3.3.1",
-          "verified": "3.3.1"
+          "minimum": "6.0.6",
+          "verified": "6.0.6"
         }
       }
     ]
   },
   "esmodules": [
-    "scripts/main.js"
+    "scripts/v14-main.js"
   ],
   "styles": [
-    "styles/world-codex.css"
+    "styles/world-codex.css",
+    "styles/v14-native.css"
   ],
   "url": "https://github.com/Daikaze/Info-Library",
-  "manifest": "https://raw.githubusercontent.com/Daikaze/Info-Library/main/module.json",
-  "download": "https://raw.githubusercontent.com/Daikaze/Info-Library/main/world-codex-v0.1.5-v11.zip"
+  "manifest": "https://raw.githubusercontent.com/Daikaze/Info-Library/foundry-v14/module.json",
+  "download": "https://github.com/Daikaze/Info-Library/releases/download/v14.0.1/world-codex-v14.zip"
 }
