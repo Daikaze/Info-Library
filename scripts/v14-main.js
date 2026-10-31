@@ -609,7 +609,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     this._chooseImage(null);
   }
   _closeDropdowns(except = null) {
-    $(this.element)?.find?.("[data-wc-dropdown]")?.each?.((_, el) => {
+    (this.element ? $(this.element) : null)?.find?.("[data-wc-dropdown]")?.each?.((_, el) => {
       if (el === except) return;
       el.classList.remove("wc-open");
       const menu = el.querySelector(".wc-dropdown-menu");
@@ -624,7 +624,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     this.draft[field] = WC_RICH_PREFIX + wcSanitizeRich(element.innerHTML);
   }
   _syncAllRich() {
-    $(this.element)?.find?.("[data-wc-rich]")?.each?.((_, element) => this._syncRich(element));
+    (this.element ? $(this.element) : null)?.find?.("[data-wc-rich]")?.each?.((_, element) => this._syncRich(element));
   }
   _rememberCaret(editor) {
     const selection = window.getSelection();
@@ -632,7 +632,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
       this._richCaret = {field:editor.dataset.wcRich, range:selection.getRangeAt(0).cloneRange()};
     }
   }
-  _editorFor(field) { return $(this.element)?.find?.(`[data-wc-rich="${field}"]`)?.[0] || null; }
+  _editorFor(field) { return (this.element ? $(this.element) : null)?.find?.(`[data-wc-rich="${field}"]`)?.[0] || null; }
   _insertRichImage(path, field) {
     const url = wcImage(path);
     const editor = this._editorFor(field);
@@ -679,19 +679,19 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     this._applyImageStyle(img);
     this._positionHandle();
     const editor = img.closest("[data-wc-rich]");
-    const tools = $(this.element)?.find?.(`[data-wc-image-tools="${editor?.dataset.wcRich}"]`);
+    const tools = (this.element ? $(this.element) : null)?.find?.(`[data-wc-image-tools="${editor?.dataset.wcRich}"]`);
     tools?.find("[data-wc-image-position]").text(`Position ${img.dataset.wcOffsetX}, ${img.dataset.wcOffsetY}`);
     this._syncRich(editor);
   }
   _chooseImage(img) {
-    $(this.element)?.find?.(".wc-rich-editable img.wc-image-selected")?.removeClass("wc-image-selected");
+    (this.element ? $(this.element) : null)?.find?.(".wc-rich-editable img.wc-image-selected")?.removeClass("wc-image-selected");
     this._selectedImage = img || null;
-    $(this.element)?.find?.(".wc-image-tools")?.attr("hidden", true);
-    $(this.element)?.find?.(".wc-image-resize-handle")?.attr("hidden", true);
+    (this.element ? $(this.element) : null)?.find?.(".wc-image-tools")?.attr("hidden", true);
+    (this.element ? $(this.element) : null)?.find?.(".wc-image-resize-handle")?.attr("hidden", true);
     if (!img || !img.isConnected) return;
     img.classList.add("wc-image-selected");
     const field = img.closest("[data-wc-rich]")?.dataset.wcRich;
-    const tools = $(this.element)?.find?.(`[data-wc-image-tools="${field}"]`);
+    const tools = (this.element ? $(this.element) : null)?.find?.(`[data-wc-image-tools="${field}"]`);
     tools?.removeAttr("hidden");
     tools?.find("[data-wc-image-size]").val(wcWidth(img.dataset.wcWidth));
     tools?.find("output").text(`${wcWidth(img.dataset.wcWidth)}%`);
@@ -716,7 +716,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     img.dataset.wcWidth = String(wcWidth(value));
     this._applyImageStyle(img);
     const editor = img.closest("[data-wc-rich]");
-    const tools = $(this.element).find(`[data-wc-image-tools="${editor.dataset.wcRich}"]`);
+    const tools = (this.element ? $(this.element) : null)?.find(`[data-wc-image-tools="${editor.dataset.wcRich}"]`);
     tools.find("[data-wc-image-size]").val(wcWidth(value));
     tools.find("output").text(`${wcWidth(value)}%`);
     this._positionHandle(); this._syncRich(editor);
@@ -749,7 +749,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
       const b = this._canvasBlock();
       if (!b || b.type !== "text") return;
       b.html = WC_RICH_PREFIX + wcSanitizeRich(ev.currentTarget.innerHTML);
-      const preview=$(this.element)?.find?.(`[data-wc-canvas-block="${b.id}"] .wc-canvas-text`)?.[0];
+      const preview=(this.element ? $(this.element) : null)?.find?.(`[data-wc-canvas-block="${b.id}"] .wc-canvas-text`)?.[0];
       if (preview) preview.innerHTML=wcContent(b.html);
     });
     html.on("change", "[data-wc-issue-reader]", ev => {
@@ -760,7 +760,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
       this.draft.allowedUserIds=[...ids];
     });
     html.on("change", '[data-wc-field="audience"]', ev => {
-      $(this.element)?.find?.('[data-wc-audience-users]')?.prop?.('hidden', ev.currentTarget.value !== 'selected');
+      (this.element ? $(this.element) : null)?.find?.('[data-wc-audience-users]')?.prop?.('hidden', ev.currentTarget.value !== 'selected');
     });
     html.on("change", "[data-wc-canvas-coordinate]", ev => {
       if (this.view !== "page-designer") return;
@@ -773,7 +773,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
       if (key === "size") selected.size=wcCanvasNumber(ev.currentTarget.value, 15, 9, 52);
       else if (key === "fit") selected.fit=ev.currentTarget.value === "cover" ? "cover" : "contain";
       else if (key === "align") selected.align=["left","center","right"].includes(ev.currentTarget.value)?ev.currentTarget.value:"left";
-      const node=$(this.element).find(`[data-wc-canvas-block="${selected.id}"]`)[0];
+      const node=(this.element ? $(this.element) : null)?.find(`[data-wc-canvas-block="${selected.id}"]`)?.[0];
       if (node) {
         const text=node.querySelector(".wc-canvas-text");
         if (text) {text.style.fontSize=`${selected.size}px`;text.style.textAlign=selected.align;}
@@ -782,7 +782,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     });
     html.on("mousedown", "[data-wc-canvas-format]", ev => ev.preventDefault());
     html.on("click", "[data-wc-canvas-format]", ev => {
-      const active=$(this.element)?.find?.("[data-wc-canvas-compose]")?.[0];
+      const active=(this.element ? $(this.element) : null)?.find?.("[data-wc-canvas-compose]")?.[0];
       if (!active) return;
       active.focus();
       document.execCommand(ev.currentTarget.dataset.wcCanvasFormat,false,ev.currentTarget.dataset.value||null);
@@ -1129,7 +1129,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
   }
   _syncCanvasDOM() {
     if (this.view !== "page-designer") return;
-    const textEditor = $(this.element)?.find?.("[data-wc-canvas-compose]")?.[0];
+    const textEditor = (this.element ? $(this.element) : null)?.find?.("[data-wc-canvas-compose]")?.[0];
     const selected = this._canvasBlock();
     if (textEditor && selected?.type === "text") {
       selected.html = WC_RICH_PREFIX + wcSanitizeRich(textEditor.innerHTML);
@@ -1165,11 +1165,11 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     // rerender on pointer end / click when appropriate.
     this._syncCanvasDOM();
     this._canvasSelectedId = id;
-    $(this.element)?.find?.(".wc-canvas-block")?.removeClass("wc-canvas-selected");
-    $(this.element)?.find?.(`[data-wc-canvas-block="${id}"]`)?.addClass("wc-canvas-selected");
+    (this.element ? $(this.element) : null)?.find?.(".wc-canvas-block")?.removeClass("wc-canvas-selected");
+    (this.element ? $(this.element) : null)?.find?.(`[data-wc-canvas-block="${id}"]`)?.addClass("wc-canvas-selected");
     // Only update properties panel: re-rendering the full window here would
     // steal contenteditable focus/caret and make in-place writing difficult.
-    const inspector=$(this.element)?.find?.(".wc-designer-inspector")?.[0];
+    const inspector=(this.element ? $(this.element) : null)?.find?.(".wc-designer-inspector")?.[0];
     if (inspector) {
       const template=document.createElement("div");
       template.innerHTML=this._pageDesigner(this.store);
@@ -1182,9 +1182,9 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     Object.assign(block, updates);
     const clean = wcCanvasCleanBlock(block);
     Object.assign(block, {x:clean.x,y:clean.y,w:clean.w,h:clean.h});
-    const el = $(this.element)?.find?.(`[data-wc-canvas-block="${block.id}"]`)?.[0];
+    const el = (this.element ? $(this.element) : null)?.find?.(`[data-wc-canvas-block="${block.id}"]`)?.[0];
     if (el) Object.assign(el.style, {left:`${block.x}%`,top:`${block.y}%`,width:`${block.w}%`,height:`${block.h}%`});
-    for (const key of ["x","y","w","h"]) $(this.element)?.find?.(`[data-wc-canvas-coordinate="${key}"]`)?.val?.(block[key]);
+    for (const key of ["x","y","w","h"]) (this.element ? $(this.element) : null)?.find?.(`[data-wc-canvas-coordinate="${key}"]`)?.val?.(block[key]);
   }
   _startIssue(issue = null, data = this.store) {
     this.tab = "gazette"; this.view = "issue-form"; this.editedId = issue?.id || null;
@@ -1236,7 +1236,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
       const picker = new foundry.applications.apps.FilePicker({ type:"image", current:this.draft[field] || "", callback: (path) => {
         if (!this.draft) return;
         this.draft[field] = path;
-        $(this.element).find(`[data-wc-field="${field}"]`).val(path);
+        (this.element ? $(this.element) : null)?.find(`[data-wc-field="${field}"]`).val(path);
       }});
       picker.render(true); return;
     }
@@ -1301,7 +1301,7 @@ class WorldCodex extends foundry.applications.api.ApplicationV2 {
     if (action === "edit-issue" || action === "issue-permissions") {
       if (!issue) return;
       this._startIssue(issue, data); this.render();
-      if (action === "issue-permissions") $(this.element)?.find?.(".wc-newspaper-permissions")?.[0]?.scrollIntoView?.({block:"center"});
+      if (action === "issue-permissions") (this.element ? $(this.element) : null)?.find?.(".wc-newspaper-permissions")?.[0]?.scrollIntoView?.({block:"center"});
       return;
     }
     if (action === "save-issue") {
